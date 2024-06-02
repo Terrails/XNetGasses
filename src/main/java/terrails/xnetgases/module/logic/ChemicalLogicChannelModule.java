@@ -11,6 +11,8 @@ import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
+import static terrails.xnetgases.I18nConstants.CHANNEL_LOGIC;
+
 public class ChemicalLogicChannelModule extends BaseChannelModule {
 
     @Override
@@ -20,7 +22,7 @@ public class ChemicalLogicChannelModule extends BaseChannelModule {
 
     @Override
     public String getName() {
-        return "Mekanism Logic";
+        return CHANNEL_LOGIC.i18n();
     }
 
     @Override

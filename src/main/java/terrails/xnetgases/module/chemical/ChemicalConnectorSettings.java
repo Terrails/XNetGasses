@@ -5,6 +5,9 @@ import com.google.gson.JsonPrimitive;
 import mcjty.lib.varia.JSonTools;
 import mcjty.rftoolsbase.api.xnet.gui.IEditorGui;
 import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
+import mcjty.xnet.apiimpl.Constants;
+import mcjty.xnet.apiimpl.enums.InsExtMode;
+import mcjty.xnet.utils.CastTools;
 import mekanism.api.chemical.ChemicalStack;
 import mekanism.api.chemical.gas.IGasHandler;
 import mekanism.api.chemical.infuse.IInfusionHandler;
@@ -15,20 +18,45 @@ import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.item.ItemStack;
 import terrails.xnetgases.helper.BaseConnectorSettings;
-import terrails.xnetgases.helper.ModuleEnums.*;
 import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
-import java.util.Locale;
+import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
-import static terrails.xnetgases.Constants.*;
+import static mcjty.xnet.apiimpl.Constants.TAG_ADVANCED_NEEDED;
+import static mcjty.xnet.apiimpl.Constants.TAG_MODE;
+import static mcjty.xnet.utils.I18nConstants.EXT_ENDING;
+import static mcjty.xnet.utils.I18nConstants.FILTER_LABEL;
+import static mcjty.xnet.utils.I18nConstants.HIGH_FORMAT;
+import static mcjty.xnet.utils.I18nConstants.INS_ENDING;
+import static mcjty.xnet.utils.I18nConstants.LOW_FORMAT;
+import static mcjty.xnet.utils.I18nConstants.MAX;
+import static mcjty.xnet.utils.I18nConstants.MIN;
+import static mcjty.xnet.utils.I18nConstants.PRIORITY_LABEL;
+import static mcjty.xnet.utils.I18nConstants.PRIORITY_TOOLTIP;
+import static mcjty.xnet.utils.I18nConstants.RATE_LABEL;
+import static mcjty.xnet.utils.I18nConstants.SPEED_TOOLTIP;
+
+import static terrails.xnetgases.Constants.EXTRACT_TAGS;
+import static terrails.xnetgases.Constants.INSERT_TAGS;
+import static terrails.xnetgases.Constants.TAG_FILTER;
+import static terrails.xnetgases.Constants.TAG_MIN_MAX;
+import static terrails.xnetgases.Constants.TAG_PRIORITY;
+import static terrails.xnetgases.Constants.TAG_RATE;
+import static terrails.xnetgases.Constants.TAG_REQUIRE_RATE;
+import static terrails.xnetgases.Constants.TAG_SPEED;
+import static terrails.xnetgases.Constants.TAG_TYPE;
+import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
+import static terrails.xnetgases.I18nConstants.GAS_MINMAX_TOOLTIP_FORMATTED;
+import static terrails.xnetgases.I18nConstants.GAS_RATE_TOOLTIP_FORMATTED;
+import static terrails.xnetgases.I18nConstants.REQUIRE_INSERT_RATE_LABEL;
 
 public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalStack<?>> {
     
-    private ConnectorMode connectorMode = ConnectorMode.INS;
+    private InsExtMode connectorMode = InsExtMode.INS;
     private ChemicalEnums.Type connectorType = ChemicalEnums.Type.GAS;
 
     @Nullable private Integer priority = 0;
@@ -44,7 +72,7 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
         super(side);
     }
 
-    public ConnectorMode getConnectorMode() {
+    public InsExtMode getConnectorMode() {
         return this.connectorMode;
     }
 
@@ -118,7 +146,7 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
 
     @Override
     public boolean isEnabled(String tag) {
-        if (connectorMode == ConnectorMode.INS) {
+        if (connectorMode == InsExtMode.INS) {
             if (tag.equals(TAG_FACING)) {
                 return advanced;
             }
@@ -134,8 +162,8 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
     @Override
     public void update(Map<String, Object> data) {
         super.update(data);
-        this.connectorMode = ConnectorMode.byName(((String) data.get(TAG_MODE)));
-        this.connectorType = ChemicalEnums.Type.NAME_MAP.get(((String) data.get(TAG_TYPE)).toUpperCase(Locale.ROOT));
+        this.connectorMode = CastTools.safeInsExtMode(data.get(TAG_MODE));
+        this.connectorType = ChemicalEnums.Type.safeChemicalType(data.get(TAG_TYPE));
         this.transferRate = (Integer) data.get(TAG_RATE);
         this.minMaxLimit = (Integer) data.get(TAG_MIN_MAX);
 
@@ -155,38 +183,50 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
         this.filter = ChemicalHelper.normalizeStack((ItemStack) data.get(TAG_FILTER), this.connectorType);
     }
 
+    private String getRateTooltip() {
+        return GAS_RATE_TOOLTIP_FORMATTED.i18n(
+                (connectorMode == InsExtMode.EXT ? EXT_ENDING : INS_ENDING).i18n(), getMaxRate(advanced)
+        );
+    }
+
+    private String getMinMaxTooltip() {
+        return GAS_MINMAX_TOOLTIP_FORMATTED.i18n(
+                (connectorMode == InsExtMode.EXT ? EXT_ENDING : INS_ENDING).i18n(),
+                (connectorMode == InsExtMode.EXT ? LOW_FORMAT : HIGH_FORMAT).i18n());
+    }
+
     @Override
     public void createGui(IEditorGui gui) {
         this.advanced = gui.isAdvanced();
         int maxTransferRate = getMaxRate(this.advanced);
-
+        String[] speeds = Arrays.stream(this.advanced ? Constants.ADVANCED_SPEEDS : Constants.SPEEDS)
+                                  .map(s -> String.valueOf(Integer.parseInt(s) * 2)).toArray(String[]::new);
         sideGui(gui);
         colorsGui(gui);
         redstoneGui(gui);
         gui
                 .nl()
-                .choices(TAG_MODE, "Insert or extract mode", this.connectorMode, ConnectorMode.values())
-                .choices(TAG_TYPE, "Connector type", this.connectorType, ChemicalEnums.Type.values());
+                .translatableChoices(TAG_MODE, this.connectorMode, InsExtMode.values())
+                .translatableChoices(TAG_TYPE, this.connectorType, ChemicalEnums.Type.values());
 
-
-        if (this.connectorMode == ConnectorMode.INS) {
-            gui
-                    .label("Pri").integer(TAG_PRIORITY, "Insertion priority", this.priority, 36)
-                    .shift(5)
-                    .toggle(TAG_REQUIRE_RATE, "Require insert rate", this.transferRateRequired)
-                    .nl();
+        gui.nl();
+        if (this.connectorMode == InsExtMode.INS) {
+            gui.label(PRIORITY_LABEL.i18n()).integer(TAG_PRIORITY, PRIORITY_TOOLTIP.i18n(), this.priority, 36);
         } else {
-            gui
-                    .choices(TAG_SPEED, "Number of ticks for each operation", Integer.toString(this.operationSpeed), this.advanced ? CONNECTOR_SPEEDS[0] : CONNECTOR_SPEEDS[1])
-                    .nl();
+            gui.choices(TAG_SPEED, SPEED_TOOLTIP.i18n(), Integer.toString(this.operationSpeed), speeds);
         }
-
+        gui.nl();
+        gui.label(RATE_LABEL.i18n()).integer(TAG_RATE, getRateTooltip(), this.transferRate, 60, maxTransferRate);
+        if (this.connectorMode == InsExtMode.INS) {
+            gui.shift(10);
+            gui.toggle(TAG_REQUIRE_RATE, REQUIRE_INSERT_RATE_LABEL.i18n(), this.transferRateRequired);
+        }
+        gui.nl();
         gui
-                .label("Rate").integer(TAG_RATE, this.connectorMode == ConnectorMode.EXT ? "Extraction rate|(max " + maxTransferRate + "mb)" : "Insertion rate|(max " + maxTransferRate + "mb)", this.transferRate, 60, maxTransferRate)
-                .label(this.connectorMode == ConnectorMode.EXT ? "Min" : "Max")
-                .integer(TAG_MIN_MAX, this.connectorMode == ConnectorMode.EXT ? "Keep this amount in tank" : "Disable insertion if|amount is too high", this.minMaxLimit, 48)
+                .label((this.connectorMode == InsExtMode.EXT ? MIN : MAX).i18n())
+                .integer(TAG_MIN_MAX, getMinMaxTooltip(), this.minMaxLimit, 48)
                 .nl()
-                .label("Filter")
+                .label(FILTER_LABEL.i18n())
                 .ghostSlot(TAG_FILTER, filter);
     }
 
@@ -194,7 +234,7 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
     public void readFromNBT(CompoundTag tag) {
         super.readFromNBT(tag);
         this.transferRateRequired = tag.getBoolean(TAG_REQUIRE_RATE);
-        this.connectorMode = ConnectorMode.values()[tag.getByte(TAG_MODE)];
+        this.connectorMode = InsExtMode.values()[tag.getByte(TAG_MODE)];
         this.connectorType = ChemicalEnums.Type.values()[tag.getByte(TAG_TYPE)];
 
         if (tag.contains(TAG_PRIORITY)) {
@@ -240,7 +280,7 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
     @Override
     public void readFromJson(JsonObject data) {
         super.readFromJsonInternal(data);
-        this.connectorMode = getEnumSafe(data, TAG_MODE, ConnectorMode::byName);
+        this.connectorMode = getEnumSafe(data, TAG_MODE, ChemicalHelper::getGasMode);
         this.connectorType = getEnumSafe(data, TAG_TYPE, ChemicalEnums.Type.NAME_MAP::get);
         this.priority = getIntegerSafe(data, TAG_PRIORITY);
         this.transferRate = getIntegerSafe(data, TAG_RATE);
@@ -269,7 +309,7 @@ public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalSta
             data.add(TAG_FILTER, JSonTools.itemStackToJson(this.filter));
         }
         if (this.operationSpeed == 10 || (this.transferRate != null && this.transferRate > this.getMaxRate(false))) {
-            data.add("advancedneeded", new JsonPrimitive(true));
+            data.add(TAG_ADVANCED_NEEDED, new JsonPrimitive(true));
         }
         return data;
     }
