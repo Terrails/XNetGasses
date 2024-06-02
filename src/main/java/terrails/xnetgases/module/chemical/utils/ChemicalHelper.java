@@ -1,5 +1,6 @@
 package terrails.xnetgases.module.chemical.utils;
 
+import mcjty.xnet.apiimpl.enums.InsExtMode;
 import mekanism.api.Action;
 import mekanism.api.chemical.Chemical;
 import mekanism.api.chemical.ChemicalStack;
@@ -19,16 +20,21 @@ import mekanism.common.util.ChemicalUtil;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.common.capabilities.ICapabilityProvider;
+import terrails.xnetgases.helper.ModuleEnums.ChannelMode;
 import terrails.xnetgases.module.chemical.ChemicalEnums;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 public class ChemicalHelper {
+
+    private static Map<String, InsExtMode> gasModeMap;
 
     public static Optional<IChemicalHandler<?, ?>> handler(ICapabilityProvider provider, Direction direction, ChemicalEnums.Type type) {
         IChemicalHandler<?, ?> handler = null;
@@ -163,5 +169,24 @@ public class ChemicalHelper {
             }
         }
         return stack;
+    }
+
+    public static ChannelMode safeChannelMode(Object o) {
+        if (o != null) {
+            return ChannelMode.values()[(int) o];
+        } else {
+            return ChannelMode.DISTRIBUTE;
+        }
+    }
+
+    @Nullable
+    public static InsExtMode getGasMode(String mode) {
+        if (gasModeMap == null) {
+            gasModeMap = new HashMap<>();
+            for (InsExtMode value : InsExtMode.values()) {
+                gasModeMap.put(value.name(), value);
+            }
+        }
+        return gasModeMap.get(mode);
     }
 }

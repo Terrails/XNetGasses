@@ -8,8 +8,10 @@ import net.minecraft.world.level.Level;
 import net.minecraftforge.common.ForgeConfigSpec;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
-import terrails.xnetgases.module.chemical.utils.*;
 import terrails.xnetgases.helper.BaseChannelModule;
+import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
+
+import static terrails.xnetgases.I18nConstants.CHANNEL_GAS;
 
 public class ChemicalChannelModule extends BaseChannelModule {
 
@@ -30,7 +32,7 @@ public class ChemicalChannelModule extends BaseChannelModule {
 
     @Override
     public String getName() {
-        return "Mekanism Chemical";
+        return CHANNEL_GAS.i18n();
     }
 
     @Override
