@@ -13,11 +13,17 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import terrails.xnetgases.module.chemical.ChemicalEnums;
 import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
-import terrails.xnetgases.module.logic.ChemicalLogicEnums.*;
+import terrails.xnetgases.module.logic.ChemicalLogicEnums.SensorMode;
+import terrails.xnetgases.module.logic.ChemicalLogicEnums.SensorOperator;
+
 
 import javax.annotation.Nullable;
 import java.util.Map;
 import java.util.function.Function;
+
+import static mcjty.xnet.utils.I18nConstants.LOGIC_SENSOR_AMOUNT_TOOLTIP;
+import static mcjty.xnet.utils.I18nConstants.LOGIC_SENSOR_OPERATOR_TOOLTIP;
+import static mcjty.xnet.utils.I18nConstants.LOGIC_SENSOR_OUT_COLOR_TOOLTIP;
 
 public class ChemicalSensor {
 
@@ -68,10 +74,10 @@ public class ChemicalSensor {
 
     public void createGui(IEditorGui gui) {
         gui
-                .choices(modeTag, "Sensor mode", sensorMode, SensorMode.values())
-                .choices(operatorTag, "Operator", operator, SensorOperator.values())
-                .integer(amountTag, "Amount to compare with", amount, 46)
-                .colors(colorTag, "Output color", outputColor.getColor(), Color.COLORS)
+                .translatableChoices(modeTag, sensorMode, SensorMode.values())
+                .choices(operatorTag, LOGIC_SENSOR_OPERATOR_TOOLTIP.i18n(), operator, SensorOperator.values())
+                .integer(amountTag, LOGIC_SENSOR_AMOUNT_TOOLTIP.i18n(), amount, 46)
+                .colors(colorTag, LOGIC_SENSOR_OUT_COLOR_TOOLTIP.i18n(), outputColor.getColor(), Color.COLORS)
                 .ghostSlot(filterTag, filter)
                 .nl();
     }
@@ -94,7 +100,7 @@ public class ChemicalSensor {
     }
 
     public void update(Map<String, Object> data) {
-        sensorMode = this.getObjectFromMap(data, modeTag, SensorMode.OFF, (object) -> SensorMode.valueOf(((String) object).toUpperCase()));
+        sensorMode = this.getObjectFromMap(data, modeTag, SensorMode.OFF, (object) -> SensorMode.values()[(int) object]);
         operator = this.getObjectFromMap(data, operatorTag, SensorOperator.EQUAL, (object) -> SensorOperator.byCode(((String) object).toUpperCase()));
         amount = this.getObjectFromMap(data, amountTag, 0, Integer.class::cast);
         outputColor = this.getObjectFromMap(data, colorTag, Color.OFF, (object) -> Color.colorByValue((Integer) object));

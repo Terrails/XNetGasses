@@ -1,9 +1,11 @@
 package terrails.xnetgases.module.logic;
 
+import mcjty.lib.gui.ITranslatableEnum;
+import mcjty.lib.varia.ComponentFactory;
+import mcjty.xnet.utils.I18nUtils;
 import terrails.xnetgases.module.chemical.ChemicalEnums;
 
 import java.util.Arrays;
-import java.util.Locale;
 import java.util.Map;
 import java.util.function.BiPredicate;
 import java.util.function.Function;
@@ -11,18 +13,18 @@ import java.util.stream.Collectors;
 
 public class ChemicalLogicEnums {
 
-    public enum ConnectorMode {
-        SENSOR, OUTPUT;
+    public enum SensorMode implements ITranslatableEnum<SensorMode> {
+        OFF("xnet-gases.enum.logic.sensormode.off"),
+        GAS("xnet-gases.enum.logic.sensormode.gas"),
+        SLURRY("xnet-gases.enum.logic.sensormode.slurry"),
+        INFUSE("xnet-gases.enum.logic.sensormode.infuse"),
+        PIGMENT("xnet-gases.enum.logic.sensormode.pigment");
 
-        private static final Map<String, ConnectorMode> NAME_MAP = Arrays.stream(ConnectorMode.values()).collect(Collectors.toMap(Enum::name, Function.identity()));
+        private final String i18n;
 
-        public static ConnectorMode byName(String name) {
-            return NAME_MAP.get(name.toUpperCase(Locale.ROOT));
+        SensorMode(String i18n) {
+            this.i18n = i18n;
         }
-    }
-
-    public enum SensorMode {
-        OFF, GAS, SLURRY, INFUSE, PIGMENT;
 
         private static final Map<String, SensorMode> NAME_MAP = Arrays.stream(SensorMode.values()).collect(Collectors.toMap(Enum::name, Function.identity()));
 
@@ -33,6 +35,16 @@ public class ChemicalLogicEnums {
         public ChemicalEnums.Type toType() {
             if (this == OFF) return null;
             return ChemicalEnums.Type.byName(this.name());
+        }
+
+        @Override
+        public String getI18n() {
+            return ComponentFactory.translatable(i18n).getString();
+        }
+
+        @Override
+        public String[] getI18nSplitedTooltip() {
+            return I18nUtils.getSplitedEnumTooltip(i18n);
         }
     }
 
