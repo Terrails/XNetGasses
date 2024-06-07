@@ -1,6 +1,8 @@
 plugins {
     id 'net.minecraftforge.gradle' version '5.1.+'
     id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    id "com.modrinth.minotaur" version "2.+"
+    id 'net.darkhax.curseforgegradle' version '1.1.+'
 }
 
 version = project.mod_version
@@ -90,4 +92,63 @@ jar.manifest.attributes([
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+tasks.register('printChangelog') {
+    println(fetchChangelog())
+}
+
+ext.fetchChangelog = {
+    def branch = "git rev-parse --abbrev-ref HEAD".execute().in.text.trim()
+    if (branch.isBlank() || branch == "HEAD") {
+        throw new GradleException("Branch name could not be fetched.")
+    }
+
+    def repoUrl = "https://github.com/Terrails/xnet-gases"
+    def changes = new StringBuilder("Latest changes ([See all](${repoUrl}/commits/${branch}))\n---")
+    def log = "git log --max-count=30 --no-merges --pretty=format:\"* %s ([%h](${repoUrl}/commit/%H))\"".execute()
+    log.in.eachLine { line ->
+        if (!line.containsIgnoreCase("version")
+                && !line.containsIgnoreCase("bump")
+                && !line.containsIgnoreCase("update")) { // version change commits should be ignored
+            changes << "\n${line}"
+        }
+    }
+
+    if (log.waitFor() == 0) {
+        return changes.toString()
+    } else {
+        throw new GradleException("Received an error while executing git log.")
+    }
+}
+
+modrinth {
+    token = System.getenv("MODRINTH_TOKEN")
+    projectId = "${rootProject.modrinth_id}"
+    versionNumber = "${project.version}"
+    versionName = "${rootProject.minecraft_version}-v${project.version}"
+    uploadFile = jar
+    gameVersions = [rootProject.minecraft_version]
+    loaders = ["forge"]
+    dependencies {
+        required.project "xnet"
+        required.project "mekanism"
+    }
+    changelog = fetchChangelog()
+    additionalFiles = [tasks.sourcesJar]
+}
+
+import net.darkhax.curseforgegradle.TaskPublishCurseForge
+tasks.register('publishCurseForge', TaskPublishCurseForge) {
+    apiToken = System.getenv("CURSEFORGE_TOKEN")
+    disableVersionDetection()
+
+    def mainFile = upload(rootProject.curseforge_id, jar)
+    mainFile.displayName = "${rootProject.minecraft_version}-v${project.version}"
+    mainFile.releaseType = "release"
+    mainFile.changelog = fetchChangelog()
+    mainFile.changelogType = "markdown"
+    mainFile.addModLoader("forge")
+    mainFile.addRequirement("xnet", "mekanism")
+    mainFile.withAdditionalFile(tasks.sourcesJar)
 }
