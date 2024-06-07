@@ -39,12 +39,10 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
 
     public static final String TAG_DELAY = "delay";
     public static final String TAG_DISTRIBUTE_OFFSET = "distribute_offset";
-    public static final String TAG_DISTRIBUTE_INCREMENT = "distribute_increment";
 
     private ChannelMode channelMode = ChannelMode.DISTRIBUTE;
     private int delay;
     private int roundRobinOffset;
-    private int roundRobinIncrement;
 
     private List<ConnectedEntity<ChemicalConnectorSettings>> extractors;
     private List<ConnectedEntity<ChemicalConnectorSettings>> consumers;
@@ -52,7 +50,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
     public ChemicalChannelSettings() {
         this.delay = 0;
         this.roundRobinOffset = 0;
-        this.roundRobinIncrement = 0;
     }
 
     @Override
@@ -60,7 +57,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         this.channelMode = ChannelMode.values()[tag.getByte(TAG_MODE)];
         this.delay = tag.getInt(TAG_DELAY);
         this.roundRobinOffset = tag.getInt(TAG_DISTRIBUTE_OFFSET);
-        this.roundRobinIncrement = tag.getInt(TAG_DISTRIBUTE_INCREMENT);
     }
 
     @Override
@@ -68,7 +64,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         tag.putByte(TAG_MODE, (byte) this.channelMode.ordinal());
         tag.putInt(TAG_DELAY, this.delay);
         tag.putInt(TAG_DISTRIBUTE_OFFSET, this.roundRobinOffset);
-        tag.putInt(TAG_DISTRIBUTE_INCREMENT, this.roundRobinIncrement);
     }
 
     @Override
@@ -76,7 +71,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         this.channelMode = ChannelMode.byName(data.get(TAG_MODE).getAsString());
         this.delay = data.get(TAG_DELAY).getAsInt();
         this.roundRobinOffset = data.get(TAG_DISTRIBUTE_OFFSET).getAsInt();
-        this.roundRobinIncrement = data.get(TAG_DISTRIBUTE_INCREMENT).getAsInt();
     }
 
     @Override
@@ -85,7 +79,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         object.add(TAG_MODE, new JsonPrimitive(this.channelMode.name()));
         object.add(TAG_DELAY, new JsonPrimitive(this.delay));
         object.add(TAG_DISTRIBUTE_OFFSET, new JsonPrimitive(this.roundRobinOffset));
-        object.add(TAG_DISTRIBUTE_INCREMENT, new JsonPrimitive(this.roundRobinIncrement));
         return object;
     }
 
@@ -157,7 +150,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
             }
             toExtract = extractStack.getAmount();
             long remaining = insertGas(context, extractStack, type);
-            this.roundRobinOffset = (this.roundRobinOffset + this.roundRobinIncrement) % this.consumers.size();
             toExtract -= remaining;
             if (remaining != toExtract) {
                 ChemicalHelper.extract(handler, toExtract, settings.getFacing(), Action.EXECUTE, type);
@@ -171,52 +163,14 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         if (this.channelMode == ChannelMode.PRIORITY) {
             this.roundRobinOffset = 0;
         }
-        this.roundRobinIncrement = 0;
-        /*
-            Regarding 'roundRobinIncrement'
-            Let's say that a consumer is full / doesn't exist / doesn't accept chemical for some reason
-
-            When round-robin / distribution is enabled and the loop below goes through a consumer
-            that's in any of the above given states. If it's in any of those states 'j' is incremented.
-
-            The next consumers accept the chemical and everything's fine. The inserted list has the valid consumers,
-            the function eventually returns when 'amount' is 0 and the inserted list is given to the real insert function.
-            This insert function increments 'roundRobinOffset' by one for each consumer.
-
-            We then get back to this function. The last consumer that accepted the chemical will be iterated
-            over again and chemicals will be added to it twice in a row instead of once per every round-robin circle.
-
-            Behaviour without 'roundRobinIncrement':
-            Simple example with only 3 consumers, [1],[3] are invalid, [0],[2] are valid.
-
-            First run:
-                Iteration 1: roundRobinOffset = 0; j = 0; -> consumers[0] is chosen
-                    -> Added to inserted list
-                Iteration 2: roundRobinOffset = 0; j = 1; -> consumers[1] is chosen
-                    -> Skipped
-                Iteration 3: roundRobinOffset = 0; j = 2; -> consumers[2] is chosen
-                    -> Added to inserted list
-                Iteration 4: roundRobinOffset = 0; j = 3; -> consumers[3] is chosen
-                    -> Skipped
-                Function ends and goes back to main function. 'roundRobinOffset' is
-                incremented by 1 for each valid consumer (2 in this case).
-            Second run:
-                Iteration 1: roundRobinOffset = 2; j = 0; -> consumers[2] is chosen
-                    -> This should've gone to consumers[0] as the round-robin ran through
-                        all consumers already.
-
-             'roundRobinIncrement' would be 2 at the end of first run and would be added to 'roundRobinOffset'
-             which would in end result in (2 + 2) % 4 = 0.
-         */
         long amount = stack.getAmount();
+        int currentRoundRobinOffset = this.roundRobinOffset;
         for (int j = 0; j < this.consumers.size(); j++) {
-            int i = (j + this.roundRobinOffset) % this.consumers.size();
-            if (this.roundRobinOffset < 0) continue;
+            int i = (j + currentRoundRobinOffset) % this.consumers.size();
             ConnectedEntity<ChemicalConnectorSettings> consumer = this.consumers.get(i);
             ChemicalConnectorSettings settings = consumer.settings();
 
             if (settings.getConnectorType() != type) {
-                this.roundRobinIncrement++;
                 continue;
             }
 
@@ -225,16 +179,13 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
             }
 
             if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || checkRedstone(level, settings, consumer.connectorPos()) || !context.matchColor(settings.getColorsMask())) {
-                this.roundRobinIncrement++;
                 continue;
             }
 
             BlockEntity be = consumer.getConnectedEntity();
 
             IChemicalHandler<?, ?> handler = ChemicalHelper.handler(be, settings.getFacing(), settings.getConnectorType()).orElse(null);
-            if (handler == null) {
-                this.roundRobinIncrement++;
-            } else {
+            if (handler != null) {
                 long toInsert = Math.min(settings.getRate(), amount);
 
                 Integer count = settings.getMinMaxLimit();
@@ -261,8 +212,6 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
                     if (amount <= 0) {
                         return 0;
                     }
-                } else if (remaining.equals(copy)) {
-                    this.roundRobinIncrement++;
                 }
             }
         }
@@ -336,7 +285,7 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
             return null;
         }
 
-        return  new ConnectedEntity<>(entry.getKey(), con, connectorPos, connectedBlockPos, connectedEntity, connectorTileEntity);
+        return new ConnectedEntity<>(entry.getKey(), con, connectorPos, connectedBlockPos, connectedEntity, connectorTileEntity);
     }
 
     @Nullable
