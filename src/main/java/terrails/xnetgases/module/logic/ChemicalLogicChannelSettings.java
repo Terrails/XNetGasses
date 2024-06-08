@@ -10,7 +10,8 @@ import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
 import mcjty.rftoolsbase.api.xnet.helper.DefaultChannelSettings;
 import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
 import mcjty.xnet.apiimpl.ConnectedBlock;
-import mcjty.xnet.apiimpl.logic.ConnectedEntity;
+import mcjty.xnet.apiimpl.ConnectedEntity;
+import mcjty.xnet.apiimpl.logic.ConnectedOptionalEntity;
 import mcjty.xnet.apiimpl.logic.enums.LogicMode;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
 import net.minecraft.core.BlockPos;
@@ -32,7 +33,7 @@ import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
 public class ChemicalLogicChannelSettings extends DefaultChannelSettings implements IChannelSettings {
 
     private int colors = 0;
-    private List<ConnectedEntity<ChemicalLogicConnectorSettings>> sensors = null;
+    private List<ConnectedOptionalEntity<ChemicalLogicConnectorSettings>> sensors = null;
     private List<ConnectedBlock<ChemicalLogicConnectorSettings>> outputs = null;
 
     @Override
@@ -56,7 +57,7 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
         Level level = context.getControllerWorld();
 
         colors = 0;
-        for (ConnectedEntity<ChemicalLogicConnectorSettings> entry : sensors) {
+        for (ConnectedOptionalEntity<ChemicalLogicConnectorSettings> entry : sensors) {
             ChemicalLogicConnectorSettings settings = entry.settings();
             int sensorColors = 0;
             BlockPos pos = entry.getBlockPos();
@@ -122,10 +123,7 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
                     continue;
                 }
                 if (con.getConnectorMode() == LogicMode.SENSOR) {
-                    ConnectedEntity<ChemicalLogicConnectorSettings> connectedEntity = getConnectedEntity(connectedBlock, world);
-                    if (connectedEntity == null) {
-                        continue;
-                    }
+                    ConnectedOptionalEntity<ChemicalLogicConnectorSettings> connectedEntity = getConnectedEntity(connectedBlock, world);
                     sensors.add(connectedEntity);
                 } else {
                     outputs.add(connectedBlock);
@@ -144,15 +142,12 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
         }
     }
 
-    @Nullable
-    private ConnectedEntity<ChemicalLogicConnectorSettings> getConnectedEntity(
+    @Nonnull
+    private ConnectedOptionalEntity<ChemicalLogicConnectorSettings> getConnectedEntity(
             @Nonnull ConnectedBlock<ChemicalLogicConnectorSettings> connectedBlock, @Nonnull Level world
     ) {
         BlockEntity connectedEntity = world.getBlockEntity(connectedBlock.getBlockPos());
-        if (connectedEntity == null) {
-            return null;
-        }
-        return new ConnectedEntity<>(connectedBlock, connectedEntity);
+        return new ConnectedOptionalEntity<>(connectedBlock, connectedEntity);
     }
 
     @Nullable
