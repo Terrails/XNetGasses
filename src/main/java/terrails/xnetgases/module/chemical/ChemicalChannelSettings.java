@@ -10,7 +10,7 @@ import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
 import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
 import mcjty.xnet.apiimpl.Constants;
 import mcjty.xnet.apiimpl.enums.InsExtMode;
-import mcjty.xnet.apiimpl.logic.ConnectedEntity;
+import mcjty.xnet.apiimpl.ConnectedEntity;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
 import mcjty.xnet.setup.Config;
 import mekanism.api.Action;
@@ -30,7 +30,6 @@ import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-
 
 import static terrails.xnetgases.Constants.TAG_MODE;
 import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
