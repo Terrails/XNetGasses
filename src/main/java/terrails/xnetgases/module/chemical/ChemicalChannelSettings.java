@@ -10,7 +10,7 @@ import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
 import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
 import mcjty.xnet.apiimpl.Constants;
 import mcjty.xnet.apiimpl.enums.InsExtMode;
-import mcjty.xnet.apiimpl.logic.ConnectedEntity;
+import mcjty.xnet.apiimpl.ConnectedEntity;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
 import mcjty.xnet.setup.Config;
 import mekanism.api.Action;
