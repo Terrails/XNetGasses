@@ -31,7 +31,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
-
 import static terrails.xnetgases.Constants.TAG_MODE;
 import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
 
