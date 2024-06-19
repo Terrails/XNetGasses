@@ -10,7 +10,7 @@ import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
 import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
 import mcjty.xnet.apiimpl.Constants;
 import mcjty.xnet.apiimpl.enums.InsExtMode;
-import mcjty.xnet.apiimpl.logic.ConnectedEntity;
+import mcjty.xnet.apiimpl.ConnectedEntity;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
 import mcjty.xnet.setup.Config;
 import mekanism.api.Action;
@@ -102,10 +102,7 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
             if (!LevelTools.isLoaded(world, extractor.getBlockPos())) {
                 continue;
             }
-            if (checkRedstone(world, settings, extractor.connectorPos())) {
-                return;
-            }
-            if (!context.matchColor(settings.getColorsMask())) {
+            if (!checkRedstone(settings, extractor.getConnectorEntity(), context)) {
                 return;
             }
 
@@ -178,7 +175,7 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
                 continue;
             }
 
-            if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || checkRedstone(level, settings, consumer.connectorPos()) || !context.matchColor(settings.getColorsMask())) {
+            if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || !checkRedstone(settings, consumer.getConnectorEntity(), context)) {
                 continue;
             }
 
