@@ -101,10 +101,7 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
             if (!LevelTools.isLoaded(world, extractor.getBlockPos())) {
                 continue;
             }
-            if (checkRedstone(world, settings, extractor.connectorPos())) {
-                return;
-            }
-            if (!context.matchColor(settings.getColorsMask())) {
+            if (!checkRedstone(settings, extractor.getConnectorEntity(), context)) {
                 return;
             }
 
@@ -177,7 +174,7 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
                 continue;
             }
 
-            if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || checkRedstone(level, settings, consumer.connectorPos()) || !context.matchColor(settings.getColorsMask())) {
+            if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || !checkRedstone(settings, consumer.getConnectorEntity(), context)) {
                 continue;
             }
 
