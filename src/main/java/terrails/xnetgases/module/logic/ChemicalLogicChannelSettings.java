@@ -67,13 +67,8 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
                 continue;
             }
 
-            boolean sense = !checkRedstone(level, settings, entry.connectorPos());
-            if (sense && !context.matchColor(settings.getColorsMask())) {
-                sense = false;
-            }
-
-            // If sense is false the sensor is disabled which means the colors from it will also be disabled
-            if (sense) {
+            // If checkRedstone is false the sensor is disabled which means the colors from it will also be disabled
+            if (checkRedstone(settings, entry.getConnectorEntity(), context)) {
                 BlockEntity te = entry.getConnectedEntity();
 
                 for (ChemicalSensor sensor : settings.getSensors()) {
@@ -98,12 +93,10 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
 
             ConnectorTileEntity connectorTileEntity = entry.getConnectorEntity();
             int powerOut;
-            if (checkRedstone(level, settings, connectorPos)) {
-                powerOut = 0;
-            } else if (!context.matchColor(settings.getColorsMask())) {
-                powerOut = 0;
-            } else {
+            if (checkRedstone(settings, connectorTileEntity, context)) {
                 powerOut = settings.getRedstoneOut() == null ? 0 : settings.getRedstoneOut();
+            } else {
+                powerOut = 0;
             }
             connectorTileEntity.setPowerOut(side, powerOut);
         }
