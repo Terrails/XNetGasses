@@ -128,9 +128,10 @@ ext.fetchChangelog = {
     }
 }
 
+tasks.build.mustRunAfter(tasks.clean)
 tasks.register('publishProduction') {
-    dependsOn([tasks.clean, tasks.jar, tasks.sourcesJar])
-    finalizedBy(tasks.modrinth, tasks.publishCurseForge)
+    dependsOn([tasks.clean, tasks.build])
+    finalizedBy([tasks.modrinth, tasks.publishCurseForge])
 }
 
 modrinth {
@@ -138,7 +139,7 @@ modrinth {
     projectId = "${rootProject.modrinth_id}"
     versionNumber = "${project.version}"
     versionName = "${rootProject.minecraft_version}-v${project.version}"
-    uploadFile = tasks.jar.getArchiveFile()
+    uploadFile = tasks.jar.getArchiveFile().get()
     gameVersions = [rootProject.minecraft_version]
     loaders = ["forge"]
     dependencies {
@@ -146,14 +147,14 @@ modrinth {
         required.project "mekanism"
     }
     changelog = fetchChangelog()
-    additionalFiles = [tasks.sourcesJar.getArchiveFile()]
+    additionalFiles = [tasks.sourcesJar.getArchiveFile().get()]
 }
 
 tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurseForge) {
     apiToken = System.getenv("CURSEFORGE_TOKEN")
     disableVersionDetection()
 
-    def mainFile = upload(rootProject.curseforge_id, jar.getArchiveFile().get())
+    def mainFile = upload(rootProject.curseforge_id, tasks.jar.getArchiveFile().get())
     mainFile.displayName = "${rootProject.minecraft_version}-v${project.version}"
     mainFile.releaseType = "release"
     mainFile.changelog = fetchChangelog()
