@@ -158,6 +158,7 @@ tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurs
     mainFile.releaseType = "release"
     mainFile.changelog = fetchChangelog()
     mainFile.changelogType = "markdown"
+    mainFile.addGameVersion(rootProject.minecraft_version)
     mainFile.addModLoader("forge")
     mainFile.addRequirement("xnet", "mekanism")
     mainFile.withAdditionalFile(tasks.sourcesJar.getArchiveFile())
