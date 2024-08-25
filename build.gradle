@@ -1,5 +1,5 @@
 plugins {
-    id 'net.minecraftforge.gradle' version '5.1.+'
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
     id 'org.parchmentmc.librarian.forgegradle' version '1.+'
     id "com.modrinth.minotaur" version "2.+"
     id 'net.darkhax.curseforgegradle' version '1.1.+'
@@ -7,7 +7,10 @@ plugins {
 
 version = project.mod_version
 group = 'terrails.xnetgases'
-archivesBaseName = "xnetgases-${project.minecraft_version}"
+
+base {
+    archivesName = "xnetgases-${project.minecraft_version}"
+}
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
@@ -18,6 +21,7 @@ minecraft {
     runs {
         client {
             workingDirectory project.file('run')
+            args("--width", "1280", "--height", "720")
             property 'forge.logging.console.level', 'debug'
 
             // "SCAN": For mods scan.
@@ -82,20 +86,24 @@ artifacts {
     archives sourcesJar
 }
 
-jar.manifest.attributes([
-        "Specification-Title": "xnetgases",
-        "Specification-Version": "1",
-        "Implementation-Title": project.name,
-        "Implementation-Version": "${version}",
-        "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
-])
+tasks.named('jar', Jar).configure {
+    manifest.attributes([
+            "Specification-Title": "xnetgases",
+            "Specification-Version": "1",
+            "Implementation-Title": project.name,
+            "Implementation-Version": "${version}",
+            "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
+    ])
+}
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }
 
 tasks.register('printChangelog') {
-    println(fetchChangelog())
+    doLast {
+        println(fetchChangelog())
+    }
 }
 
 ext.fetchChangelog = {
@@ -120,20 +128,26 @@ ext.fetchChangelog = {
     }
 }
 
+tasks.build.mustRunAfter(tasks.clean)
+tasks.register('publishProduction') {
+    dependsOn([tasks.clean, tasks.build])
+    finalizedBy([tasks.modrinth, tasks.publishCurseForge])
+}
+
 modrinth {
     token = System.getenv("MODRINTH_TOKEN")
     projectId = "${rootProject.modrinth_id}"
     versionNumber = "${project.version}"
     versionName = "${rootProject.minecraft_version}-v${project.version}"
-    uploadFile = jar
+    uploadFile = tasks.jar.getArchiveFile().get()
     gameVersions = [rootProject.minecraft_version]
-    loaders = ["forge"]
+    loaders = ["forge", "neoforge"]
     dependencies {
         required.project "xnet"
         required.project "mekanism"
     }
     changelog = fetchChangelog()
-    additionalFiles = [tasks.sourcesJar]
+    additionalFiles = [tasks.sourcesJar.getArchiveFile().get()]
 }
 
 import net.darkhax.curseforgegradle.TaskPublishCurseForge
@@ -141,12 +155,13 @@ tasks.register('publishCurseForge', TaskPublishCurseForge) {
     apiToken = System.getenv("CURSEFORGE_TOKEN")
     disableVersionDetection()
 
-    def mainFile = upload(rootProject.curseforge_id, jar)
+    def mainFile = upload(rootProject.curseforge_id, tasks.jar.getArchiveFile().get())
     mainFile.displayName = "${rootProject.minecraft_version}-v${project.version}"
     mainFile.releaseType = "release"
     mainFile.changelog = fetchChangelog()
     mainFile.changelogType = "markdown"
-    mainFile.addModLoader("forge")
+    mainFile.addGameVersion(rootProject.minecraft_version)
+    mainFile.addModLoader("forge", "neoforge")
     mainFile.addRequirement("xnet", "mekanism")
-    mainFile.withAdditionalFile(tasks.sourcesJar)
+    mainFile.withAdditionalFile(tasks.sourcesJar.getArchiveFile().get())
 }
