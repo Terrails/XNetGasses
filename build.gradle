@@ -153,7 +153,7 @@ tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurs
     apiToken = System.getenv("CURSEFORGE_TOKEN")
     disableVersionDetection()
 
-    def mainFile = upload(rootProject.curseforge_id, jar.getArchiveFile())
+    def mainFile = upload(rootProject.curseforge_id, jar.getArchiveFile().get())
     mainFile.displayName = "${rootProject.minecraft_version}-v${project.version}"
     mainFile.releaseType = "release"
     mainFile.changelog = fetchChangelog()
@@ -161,5 +161,5 @@ tasks.register('publishCurseForge', net.darkhax.curseforgegradle.TaskPublishCurs
     mainFile.addGameVersion(rootProject.minecraft_version)
     mainFile.addModLoader("forge")
     mainFile.addRequirement("xnet", "mekanism")
-    mainFile.withAdditionalFile(tasks.sourcesJar.getArchiveFile())
+    mainFile.withAdditionalFile(tasks.sourcesJar.getArchiveFile().get())
 }
