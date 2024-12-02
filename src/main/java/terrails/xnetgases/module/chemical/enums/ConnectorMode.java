@@ -27,7 +27,7 @@ public enum ConnectorMode implements ITranslatableEnum<ConnectorMode>, StringRep
 
     private final String i18n;
 
-    private ConnectorMode(String i18n) {
+    ConnectorMode(String i18n) {
         this.i18n = i18n;
     }
 

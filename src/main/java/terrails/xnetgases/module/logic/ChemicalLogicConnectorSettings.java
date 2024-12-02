@@ -63,7 +63,7 @@ public class ChemicalLogicConnectorSettings extends AbstractConnectorSettings {
 
     private final List<ChemicalSensor> sensors;
     private LogicMode connectorMode = LogicMode.SENSOR;
-    private RSOutput output = null;
+    private RSOutput output;
     private int colorMask;
 
     public ChemicalLogicConnectorSettings(@Nonnull BaseSettings base, @Nonnull Direction direction, LogicMode connectorMode, RSOutput output, List<ChemicalSensor> sensors) {

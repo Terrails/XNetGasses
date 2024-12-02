@@ -10,6 +10,7 @@ import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.util.StringRepresentable;
 
+import javax.annotation.Nonnull;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.function.Function;
@@ -44,7 +45,7 @@ public enum SensorMode implements ITranslatableEnum<SensorMode>, StringRepresent
         return I18nUtils.getSplitedEnumTooltip(i18n);
     }
 
-
+    @Nonnull
     @Override
     public String getSerializedName() {
         return name();
