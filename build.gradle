@@ -1,8 +1,12 @@
 plugins {
-    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
-    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
+    id 'java-library'
+    id 'net.neoforged.moddev' version '1.0.21'
     id "com.modrinth.minotaur" version "2.+"
     id 'net.darkhax.curseforgegradle' version '1.1.+'
+}
+
+tasks.named('wrapper', Wrapper).configure {
+    distributionType = Wrapper.DistributionType.BIN
 }
 
 version = project.mod_version
@@ -12,44 +16,44 @@ base {
     archivesName = "xnetgases-${project.minecraft_version}"
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(17)
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
-println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
-minecraft {
-    mappings channel: 'parchment', version: "${project.parchment_version}"
+neoForge {
+    version = project.neoforge_version
+
+    parchment {
+        minecraftVersion = project.minecraft_version
+        mappingsVersion = project.parchment_version
+    }
 
     runs {
         client {
-            workingDirectory project.file('run')
-            args("--width", "1280", "--height", "720")
-            property 'forge.logging.console.level', 'debug'
-
-            // "SCAN": For mods scan.
-            // "REGISTRIES": For firing of registry events.
-            // "REGISTRYDUMP": For getting the contents of all registries.
-            property 'forge.logging.markers', 'REGISTRIES'
-
-            mods {
-                xnetgases {
-                    source sourceSets.main
-                }
-            }
+            client()
+            programArgument '--width=1280'
+            programArgument '--height=720'
         }
 
         server {
-            workingDirectory project.file('run/server')
-            property 'forge.logging.console.level', 'debug'
+            server()
+            programArgument '--nogui'
+        }
+
+        configureEach {
+            gameDirectory = layout.projectDir.dir("run/$name")
 
             // "SCAN": For mods scan.
             // "REGISTRIES": For firing of registry events.
             // "REGISTRYDUMP": For getting the contents of all registries.
-            property 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'xnetgases'
 
-            mods {
-                xnetgases {
-                    source sourceSets.main
-                }
-            }
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        xnetgases {
+            sourceSet(sourceSets.main)
         }
     }
 }
@@ -57,25 +61,27 @@ minecraft {
 sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 repositories {
-    maven {
-        name "CurseMaven"
-        url "https://www.cursemaven.com"
-        content {
+    maven { url 'https://modmaven.dev/' }
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://cursemaven.com"
+            }
+        }
+        filter {
             includeGroup "curse.maven"
         }
     }
 }
 
 dependencies {
-    minecraft "net.minecraftforge:forge:${project.minecraft_version}-${project.forge_version}"
-
     // XNet
-    implementation fg.deobf("curse.maven:xnet-260912:${project.xnet_fileId}")
-    implementation fg.deobf("curse.maven:rftools-base-326041:${project.rftoolsbase_fileId}")
-    implementation fg.deobf("curse.maven:mcjtylib-233105:${project.mcjtylib_fileId}")
+    implementation "curse.maven:xnet-260912:${project.xnet_fileId}"
+    implementation "curse.maven:rftools-base-326041:${project.rftoolsbase_fileId}"
+    implementation "curse.maven:mcjtylib-233105:${project.mcjtylib_fileId}"
 
     // Mekanism
-    implementation fg.deobf("curse.maven:mekanism-268560:${project.mekanism_fileId}")
+    implementation "mekanism:Mekanism:${project.mekanism_version}"
 }
 
 java {
@@ -88,16 +94,24 @@ artifacts {
 
 tasks.named('jar', Jar).configure {
     manifest.attributes([
-            "Specification-Title": "xnetgases",
-            "Specification-Version": "1",
-            "Implementation-Title": project.name,
-            "Implementation-Version": "${version}",
+            "Specification-Title"     : "xnetgases",
+            "Specification-Vendor"    : "Terrails",
+            "Specification-Version"   : "1",
+            "Implementation-Title"    : project.name,
+            "Implementation-Version"  : project.mod_version,
             "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")
     ])
 }
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
 }
 
 tasks.register('printChangelog') {
@@ -116,7 +130,7 @@ ext.fetchChangelog = {
     def changes = new StringBuilder("Latest changes ([See all](${repoUrl}/commits/${branch}))\n---")
     def log = "git log --max-count=30 --no-merges --pretty=format:\"* %s ([%h](${repoUrl}/commit/%H))\"".execute()
     log.in.eachLine { line ->
-        if (!line.startsWithIgnoreCase("* bump") ) { // version change commits should be ignored
+        if (!line.startsWithIgnoreCase("* bump")) { // version change commits should be ignored
             changes << "\n${line}"
         }
     }
@@ -141,7 +155,7 @@ modrinth {
     versionName = "${rootProject.minecraft_version}-v${project.version}"
     uploadFile = tasks.jar.getArchiveFile().get()
     gameVersions = [rootProject.minecraft_version]
-    loaders = ["forge", "neoforge"]
+    loaders = ["neoforge"]
     dependencies {
         required.project "xnet"
         required.project "mekanism"
@@ -151,6 +165,7 @@ modrinth {
 }
 
 import net.darkhax.curseforgegradle.TaskPublishCurseForge
+
 tasks.register('publishCurseForge', TaskPublishCurseForge) {
     apiToken = System.getenv("CURSEFORGE_TOKEN")
     disableVersionDetection()
@@ -161,7 +176,7 @@ tasks.register('publishCurseForge', TaskPublishCurseForge) {
     mainFile.changelog = fetchChangelog()
     mainFile.changelogType = "markdown"
     mainFile.addGameVersion(rootProject.minecraft_version)
-    mainFile.addModLoader("forge", "neoforge")
+    mainFile.addModLoader("neoforge")
     mainFile.addRequirement("xnet", "mekanism")
     mainFile.withAdditionalFile(tasks.sourcesJar.getArchiveFile().get())
 }

@@ -1,325 +1,272 @@
 package terrails.xnetgases.module.chemical;
 
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mojang.serialization.Codec;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
+import mcjty.lib.varia.CompositeStreamCodec;
 import mcjty.lib.varia.JSonTools;
+import mcjty.rftoolsbase.api.xnet.channels.IChannelType;
 import mcjty.rftoolsbase.api.xnet.gui.IEditorGui;
 import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
+import mcjty.rftoolsbase.api.xnet.helper.AbstractConnectorSettings;
 import mcjty.xnet.apiimpl.Constants;
-import mcjty.xnet.apiimpl.enums.InsExtMode;
-import mcjty.xnet.utils.CastTools;
-import mekanism.api.chemical.ChemicalStack;
-import mekanism.api.chemical.gas.IGasHandler;
-import mekanism.api.chemical.infuse.IInfusionHandler;
-import mekanism.api.chemical.pigment.IPigmentHandler;
-import mekanism.api.chemical.slurry.ISlurryHandler;
-import mekanism.common.capabilities.Capabilities;
+
+import terrails.xnetgases.XNetGases;
+import terrails.xnetgases.module.ChemicalMatcher;
+import terrails.xnetgases.module.chemical.enums.ConnectorMode;
 import net.minecraft.core.Direction;
-import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.ByteBufCodecs;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.item.ItemStack;
-import terrails.xnetgases.helper.BaseConnectorSettings;
-import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import java.util.Arrays;
 import java.util.Map;
-import java.util.Objects;
+import java.util.Optional;
 
-import static mcjty.xnet.apiimpl.Constants.TAG_ADVANCED_NEEDED;
-import static mcjty.xnet.apiimpl.Constants.TAG_MODE;
-import static mcjty.xnet.utils.I18nConstants.EXT_ENDING;
-import static mcjty.xnet.utils.I18nConstants.FILTER_LABEL;
-import static mcjty.xnet.utils.I18nConstants.HIGH_FORMAT;
-import static mcjty.xnet.utils.I18nConstants.INS_ENDING;
-import static mcjty.xnet.utils.I18nConstants.LOW_FORMAT;
-import static mcjty.xnet.utils.I18nConstants.MAX;
-import static mcjty.xnet.utils.I18nConstants.MIN;
-import static mcjty.xnet.utils.I18nConstants.PRIORITY_LABEL;
-import static mcjty.xnet.utils.I18nConstants.PRIORITY_TOOLTIP;
-import static mcjty.xnet.utils.I18nConstants.RATE_LABEL;
-import static mcjty.xnet.utils.I18nConstants.SPEED_TOOLTIP;
+import static mcjty.xnet.apiimpl.Constants.*;
+import static mcjty.xnet.utils.I18nConstants.*;
+import static terrails.xnetgases.Constants.*;
+import static terrails.xnetgases.I18nConstants.*;
 
-import static terrails.xnetgases.Constants.EXTRACT_TAGS;
-import static terrails.xnetgases.Constants.INSERT_TAGS;
-import static terrails.xnetgases.Constants.TAG_FILTER;
-import static terrails.xnetgases.Constants.TAG_MIN_MAX;
-import static terrails.xnetgases.Constants.TAG_PRIORITY;
-import static terrails.xnetgases.Constants.TAG_RATE;
-import static terrails.xnetgases.Constants.TAG_REQUIRE_RATE;
-import static terrails.xnetgases.Constants.TAG_SPEED;
-import static terrails.xnetgases.Constants.TAG_TYPE;
-import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
-import static terrails.xnetgases.I18nConstants.GAS_MINMAX_TOOLTIP_FORMATTED;
-import static terrails.xnetgases.I18nConstants.GAS_RATE_TOOLTIP_FORMATTED;
-import static terrails.xnetgases.I18nConstants.REQUIRE_INSERT_RATE_LABEL;
+public class ChemicalConnectorSettings extends AbstractConnectorSettings {
 
-public class ChemicalConnectorSettings extends BaseConnectorSettings<ChemicalStack<?>> {
-    
-    private InsExtMode connectorMode = InsExtMode.INS;
-    private ChemicalEnums.Type connectorType = ChemicalEnums.Type.GAS;
+    public static final MapCodec<ChemicalConnectorSettings> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            BaseSettings.CODEC.fieldOf("base").forGetter(settings -> settings.settings),
+            Direction.CODEC.fieldOf("side").forGetter(ChemicalConnectorSettings::getSide),
+            ConnectorMode.CODEC.fieldOf("mode").forGetter(ChemicalConnectorSettings::getConnectorMode),
+            Codec.INT.optionalFieldOf("priority").forGetter(o -> Optional.ofNullable(o.priority)),
+            Codec.INT.optionalFieldOf("rate").forGetter(o -> Optional.ofNullable(o.transferRate)),
+            Codec.INT.optionalFieldOf("minmax").forGetter(o -> Optional.ofNullable(o.minMaxLimit)),
+            Codec.INT.fieldOf("speed").forGetter(ChemicalConnectorSettings::getOperationSpeed),
+            Codec.BOOL.fieldOf("rate_required").forGetter(ChemicalConnectorSettings::isTransferRateRequired),
+            ItemStack.OPTIONAL_CODEC.optionalFieldOf("filter", ItemStack.EMPTY).forGetter(o -> o.matcher.getStack())
+    ).apply(instance, ChemicalConnectorSettings::new));
 
-    @Nullable private Integer priority = 0;
-    @Nullable private Integer transferRate = null;
-    @Nullable private Integer minMaxLimit = null;
+    public static final StreamCodec<RegistryFriendlyByteBuf, ChemicalConnectorSettings> STREAM_CODEC = CompositeStreamCodec.composite(
+            BaseSettings.STREAM_CODEC, s -> s.settings,
+            Direction.STREAM_CODEC, ChemicalConnectorSettings::getSide,
+            ConnectorMode.STREAM_CODEC, ChemicalConnectorSettings::getConnectorMode,
+            ByteBufCodecs.optional(ByteBufCodecs.INT), s -> Optional.ofNullable(s.priority),
+            ByteBufCodecs.optional(ByteBufCodecs.INT), s -> Optional.ofNullable(s.transferRate),
+            ByteBufCodecs.optional(ByteBufCodecs.INT), s -> Optional.ofNullable(s.minMaxLimit),
+            ByteBufCodecs.INT, ChemicalConnectorSettings::getOperationSpeed,
+            ByteBufCodecs.BOOL, ChemicalConnectorSettings::isTransferRateRequired,
+            ItemStack.OPTIONAL_STREAM_CODEC, s -> s.matcher.getStack(),
+            ChemicalConnectorSettings::new
+    );
 
+    @Nullable
+    private Integer priority = null, transferRate = null, minMaxLimit = null;
     private int operationSpeed = 20;
     private boolean transferRateRequired = false;
-
-    private ItemStack filter = ItemStack.EMPTY;
+    private ConnectorMode connectorMode = ConnectorMode.INS;
+    private ChemicalMatcher matcher = ChemicalMatcher.EMPTY;
 
     public ChemicalConnectorSettings(@Nonnull Direction side) {
-        super(side);
+        super(DEFAULT_SETTINGS, side);
     }
 
-    public InsExtMode getConnectorMode() {
-        return this.connectorMode;
+    @SuppressWarnings("OptionalUsedAsFieldOrParameterType")
+    public ChemicalConnectorSettings(
+            @Nonnull BaseSettings base, @Nonnull Direction side, ConnectorMode mode,
+            Optional<Integer> priority, Optional<Integer> rate, Optional<Integer> minMaxLimit,
+            int speed, boolean transferRateRequired, ItemStack filter) {
+        super(base, side);
+        this.connectorMode = mode;
+        this.priority = priority.orElse(null);
+        this.transferRate = rate.orElse(null);
+        this.minMaxLimit = minMaxLimit.orElse(null);
+        this.operationSpeed = speed;
+        this.transferRateRequired = transferRateRequired;
+        this.matcher = ChemicalMatcher.from(filter);
     }
 
-    public ChemicalEnums.Type getConnectorType() {
-        return this.connectorType;
+    public ConnectorMode getConnectorMode() {
+        return connectorMode;
     }
 
     public int getOperationSpeed() {
-        return this.operationSpeed;
+        return operationSpeed;
     }
 
     public int getPriority() {
-        return this.priority == null ? 0 : priority;
-    }
-
-    public boolean isTransferRateRequired() {
-        return this.transferRateRequired;
-    }
-
-    public int getRate() {
-        // 'advanced' is always false here, so default to non-advanced speed
-        return Objects.requireNonNullElse(this.transferRate, getMaxRate(false));
-    }
-
-    private int getMaxRate(boolean advanced) {
-        return switch (connectorType) {
-            case GAS -> advanced ? ChemicalChannelModule.maxGasRateAdvanced.get() : ChemicalChannelModule.maxGasRateNormal.get();
-            case INFUSE -> advanced ? ChemicalChannelModule.maxInfuseRateAdvanced.get() : ChemicalChannelModule.maxInfuseRateNormal.get();
-            case PIGMENT -> advanced ? ChemicalChannelModule.maxPigmentRateAdvanced.get() : ChemicalChannelModule.maxPigmentRateNormal.get();
-            case SLURRY -> advanced ? ChemicalChannelModule.maxSlurryRateAdvanced.get() : ChemicalChannelModule.maxSlurryRateNormal.get();
-        };
-    }
-
-    @Nullable public Integer getMinMaxLimit() {
-        return this.minMaxLimit;
+        return priority == null ? 0 : priority;
     }
 
     @Nullable
-    @Override
-    public ChemicalStack<?> getMatcher() {
-        if (!filter.isEmpty()) {
-            switch (connectorType) {
-                case GAS:
-                    if (Capabilities.GAS_HANDLER != null && filter.getCapability(Capabilities.GAS_HANDLER).isPresent()) {
-                        IGasHandler handler = filter.getCapability(Capabilities.GAS_HANDLER).orElseThrow(() -> new IllegalArgumentException("IGasHandler Capability doesn't exist!"));
-                        return handler.getChemicalInTank(0);
-                    }
-                    break;
-                case INFUSE:
-                    if (Capabilities.INFUSION_HANDLER != null && filter.getCapability(Capabilities.INFUSION_HANDLER).isPresent()) {
-                        IInfusionHandler handler = filter.getCapability(Capabilities.INFUSION_HANDLER).orElseThrow(() -> new IllegalArgumentException("IInfusionHandler Capability doesn't exist!"));
-                        return handler.getChemicalInTank(0);
-                    }
-                    break;
-                case PIGMENT:
-                    if (Capabilities.PIGMENT_HANDLER != null && filter.getCapability(Capabilities.PIGMENT_HANDLER).isPresent()) {
-                        IPigmentHandler handler = filter.getCapability(Capabilities.PIGMENT_HANDLER).orElseThrow(() -> new IllegalArgumentException("IPigmentHandler Capability doesn't exist!"));
-                        return handler.getChemicalInTank(0);
-                    }
-                    break;
-                case SLURRY:
-                    if (Capabilities.SLURRY_HANDLER != null && filter.getCapability(Capabilities.SLURRY_HANDLER).isPresent()) {
-                        ISlurryHandler handler = filter.getCapability(Capabilities.SLURRY_HANDLER).orElseThrow(() -> new IllegalArgumentException("ISlurryHandler Capability doesn't exist!"));
-                        return handler.getChemicalInTank(0);
-                    }
-                    break;
-            }
-        }
-        return null;
+    public Integer getMinMaxLimit() {
+        return minMaxLimit;
     }
 
-    @Override
-    public boolean isEnabled(String tag) {
-        if (connectorMode == InsExtMode.INS) {
-            if (tag.equals(TAG_FACING)) {
-                return advanced;
-            }
-            return INSERT_TAGS.contains(tag);
-        } else {
-            if (tag.equals(TAG_FACING)) {
-                return advanced;
-            }
-            return EXTRACT_TAGS.contains(tag);
-        }
+    public Integer getTransferRate() {
+        // 'advanced' is always false here, so default to non-advanced speed
+        return Optional.ofNullable(transferRate).orElseGet(XNetGases.maxRateNormal);
+    }
+
+    public boolean isTransferRateRequired() {
+        return transferRateRequired;
+    }
+
+    public ChemicalMatcher getMatcher() {
+        return matcher;
     }
 
     @Override
     public void update(Map<String, Object> data) {
         super.update(data);
-        this.connectorMode = CastTools.safeInsExtMode(data.get(TAG_MODE));
-        this.connectorType = ChemicalEnums.Type.safeChemicalType(data.get(TAG_TYPE));
-        this.transferRate = (Integer) data.get(TAG_RATE);
-        this.minMaxLimit = (Integer) data.get(TAG_MIN_MAX);
 
-        if (data.containsKey(TAG_REQUIRE_RATE)) {
-            this.transferRateRequired = (boolean) data.get(TAG_REQUIRE_RATE);
-        } else this.transferRateRequired = false;
+        connectorMode = Optional.ofNullable(data.get(TAG_CHEMICAL_MODE))
+                .map(o -> ConnectorMode.values()[(int) o])
+                .orElse(ConnectorMode.INS);
 
-        if (data.containsKey(TAG_PRIORITY)) {
-            this.priority = (Integer) data.get(TAG_PRIORITY);
-        } else this.priority = null;
+        transferRate = Optional.ofNullable(data.get(TAG_RATE))
+                .map(Integer.class::cast)
+                .orElse(null);
 
-        if (data.containsKey(TAG_SPEED)) {
-            this.operationSpeed = Integer.parseInt((String) data.get(TAG_SPEED));
-            if (this.operationSpeed == 0) this.operationSpeed = 20;
-        } else this.operationSpeed = 20;
+        transferRateRequired = Optional.ofNullable(data.get(TAG_REQUIRE_RATE))
+                .map(Boolean.class::cast)
+                .orElse(false);
 
-        this.filter = ChemicalHelper.normalizeStack((ItemStack) data.get(TAG_FILTER), this.connectorType);
-    }
+        minMaxLimit = Optional.ofNullable(data.get(TAG_MINMAX))
+                .map(Integer.class::cast)
+                .orElse(null);
 
-    private String getRateTooltip() {
-        return GAS_RATE_TOOLTIP_FORMATTED.i18n(
-                (connectorMode == InsExtMode.EXT ? EXT_ENDING : INS_ENDING).i18n(), getMaxRate(advanced)
-        );
-    }
+        priority = Optional.ofNullable(data.get(TAG_PRIORITY))
+                .map(Integer.class::cast)
+                .filter(i -> i != 0)
+                .orElse(0);
 
-    private String getMinMaxTooltip() {
-        return GAS_MINMAX_TOOLTIP_FORMATTED.i18n(
-                (connectorMode == InsExtMode.EXT ? EXT_ENDING : INS_ENDING).i18n(),
-                (connectorMode == InsExtMode.EXT ? LOW_FORMAT : HIGH_FORMAT).i18n());
+        operationSpeed = Optional.ofNullable(data.get(TAG_SPEED))
+                .map(String.class::cast)
+                .map(Integer::parseInt)
+                .filter(i -> i != 0)
+                .orElse(20);
+
+        matcher = Optional.ofNullable(data.get(TAG_FILTER))
+                .map(ItemStack.class::cast)
+                .map(ChemicalMatcher::from)
+                .orElse(ChemicalMatcher.EMPTY);
     }
 
     @Override
     public void createGui(IEditorGui gui) {
-        this.advanced = gui.isAdvanced();
-        int maxTransferRate = getMaxRate(this.advanced);
-        String[] speeds = Arrays.stream(this.advanced ? Constants.ADVANCED_SPEEDS : Constants.SPEEDS)
-                                  .map(s -> String.valueOf(Integer.parseInt(s) * 2)).toArray(String[]::new);
+        advanced = gui.isAdvanced();
+        int maxTransferRate = (advanced ? XNetGases.maxRateAdvanced : XNetGases.maxRateNormal).get();
+        String[] speeds = Arrays.stream(advanced ? Constants.ADVANCED_SPEEDS : Constants.SPEEDS)
+                .map(s -> String.valueOf(Integer.parseInt(s) * 2))
+                .toArray(String[]::new);
+
         sideGui(gui);
         colorsGui(gui);
         redstoneGui(gui);
-        gui
-                .nl()
-                .translatableChoices(TAG_MODE, this.connectorMode, InsExtMode.values())
-                .translatableChoices(TAG_TYPE, this.connectorType, ChemicalEnums.Type.values());
-
         gui.nl();
-        if (this.connectorMode == InsExtMode.INS) {
-            gui.label(PRIORITY_LABEL.i18n()).integer(TAG_PRIORITY, PRIORITY_TOOLTIP.i18n(), this.priority, 36);
+        gui.translatableChoices(TAG_CHEMICAL_MODE, connectorMode, ConnectorMode.values());
+        if (connectorMode == ConnectorMode.INS) {
+            gui.label(PRIORITY_LABEL.i18n()).integer(TAG_PRIORITY, PRIORITY_TOOLTIP.i18n(), priority, 36);
         } else {
-            gui.choices(TAG_SPEED, SPEED_TOOLTIP.i18n(), Integer.toString(this.operationSpeed), speeds);
+            gui.choices(TAG_SPEED, SPEED_TOOLTIP.i18n(), Integer.toString(operationSpeed), speeds);
         }
         gui.nl();
-        gui.label(RATE_LABEL.i18n()).integer(TAG_RATE, getRateTooltip(), this.transferRate, 60, maxTransferRate);
-        if (this.connectorMode == InsExtMode.INS) {
-            gui.shift(10);
-            gui.toggle(TAG_REQUIRE_RATE, REQUIRE_INSERT_RATE_LABEL.i18n(), this.transferRateRequired);
+        gui.label(RATE_LABEL.i18n()).integer(TAG_RATE, getRateTooltip(), transferRate, 60, maxTransferRate);
+        if (connectorMode == ConnectorMode.INS) {
+            gui.shift(5);
+            gui.toggle(TAG_REQUIRE_RATE, REQUIRE_INSERT_RATE_LABEL.i18n(), transferRateRequired);
         }
         gui.nl();
-        gui
-                .label((this.connectorMode == InsExtMode.EXT ? MIN : MAX).i18n())
-                .integer(TAG_MIN_MAX, getMinMaxTooltip(), this.minMaxLimit, 48)
-                .nl()
-                .label(FILTER_LABEL.i18n())
-                .ghostSlot(TAG_FILTER, filter);
+        gui.label((connectorMode == ConnectorMode.EXT ? MIN : MAX).i18n()).integer(TAG_MINMAX, getMinMaxTooltip(), minMaxLimit, 48);
+        gui.nl();
+        gui.label(FILTER_LABEL.i18n()).ghostSlot(TAG_FILTER, matcher.getStack());
     }
 
     @Override
-    public void readFromNBT(CompoundTag tag) {
-        super.readFromNBT(tag);
-        this.transferRateRequired = tag.getBoolean(TAG_REQUIRE_RATE);
-        this.connectorMode = InsExtMode.values()[tag.getByte(TAG_MODE)];
-        this.connectorType = ChemicalEnums.Type.values()[tag.getByte(TAG_TYPE)];
+    public boolean isEnabled(String tag) {
+        if (tag.equals(TAG_FACING)) {
+            return advanced;
+        }
 
-        if (tag.contains(TAG_PRIORITY)) {
-            this.priority = tag.getInt(TAG_PRIORITY);
-        } else this.priority = null;
-
-        if (tag.contains(TAG_RATE)) {
-            this.transferRate = tag.getInt(TAG_RATE);
-        } else this.transferRate = null;
-
-        if (tag.contains(TAG_MIN_MAX)) {
-            this.minMaxLimit = tag.getInt(TAG_MIN_MAX);
-        } else this.minMaxLimit = null;
-
-        this.operationSpeed = tag.getInt(TAG_SPEED);
-        if (this.operationSpeed == 0) this.operationSpeed = 20;
-
-        if (tag.contains(TAG_FILTER)) {
-            CompoundTag itemTag = tag.getCompound(TAG_FILTER);
-            this.filter = ChemicalHelper.normalizeStack(ItemStack.of(itemTag), this.connectorType);
-        } else this.filter = ItemStack.EMPTY;
-    }
-
-    @Override
-    public void writeToNBT(CompoundTag tag) {
-        super.writeToNBT(tag);
-        tag.putBoolean(TAG_REQUIRE_RATE, this.transferRateRequired);
-        tag.putByte(TAG_MODE, (byte) this.connectorMode.ordinal());
-        tag.putByte(TAG_TYPE, (byte) this.connectorType.ordinal());
-        tag.putInt(TAG_SPEED, this.operationSpeed);
-
-        if (this.priority != null) tag.putInt(TAG_PRIORITY, this.priority);
-        if (this.transferRate != null) tag.putInt(TAG_RATE, this.transferRate);
-        if (this.minMaxLimit != null) tag.putInt(TAG_MIN_MAX, this.minMaxLimit);
-
-        if (!this.filter.isEmpty()) {
-            CompoundTag itemTag = new CompoundTag();
-            this.filter.save(itemTag);
-            tag.put(TAG_FILTER, itemTag);
+        if (connectorMode == ConnectorMode.INS) {
+            return CHEMICAL_INSERT_FEATURES.contains(tag);
+        } else {
+            return CHEMICAL_EXTRACT_FEATURES.contains(tag);
         }
     }
 
     @Override
-    public void readFromJson(JsonObject data) {
-        super.readFromJsonInternal(data);
-        this.connectorMode = getEnumSafe(data, TAG_MODE, ChemicalHelper::getGasMode);
-        this.connectorType = getEnumSafe(data, TAG_TYPE, ChemicalEnums.Type.NAME_MAP::get);
-        this.priority = getIntegerSafe(data, TAG_PRIORITY);
-        this.transferRate = getIntegerSafe(data, TAG_RATE);
-        this.transferRateRequired = getBoolSafe(data, TAG_REQUIRE_RATE);
-        this.minMaxLimit = getIntegerSafe(data, TAG_MIN_MAX);
-        this.operationSpeed = getIntegerNotNull(data, TAG_SPEED);
-        if (this.operationSpeed == 0) this.operationSpeed = 20;
-        if (data.has(TAG_FILTER)) {
-            this.filter = ChemicalHelper.normalizeStack(JSonTools.jsonToItemStack(data.get(TAG_FILTER).getAsJsonObject()), this.connectorType);
-        } else this.filter = ItemStack.EMPTY;
+    public IChannelType getType() {
+        return ChemicalChannelType.TYPE;
+    }
+
+    @Nullable
+    @Override
+    public IndicatorIcon getIndicatorIcon() {
+        return switch (getConnectorMode()) {
+            case INS -> new IndicatorIcon(XNET_GUI_ELEMENTS, 0, 70, 13, 10);
+            case EXT -> new IndicatorIcon(XNET_GUI_ELEMENTS, 13, 70, 13, 10);
+        };
+    }
+
+    @Nullable
+    @Override
+    public String getIndicator() {
+        return null;
     }
 
     @Override
     public JsonObject writeToJson() {
         JsonObject data = new JsonObject();
         super.writeToJsonInternal(data);
-        data.add(TAG_REQUIRE_RATE, new JsonPrimitive(this.transferRateRequired));
-        setEnumSafe(data, TAG_MODE, this.connectorMode);
-        setEnumSafe(data, TAG_TYPE, this.connectorType);
-        setIntegerSafe(data, TAG_PRIORITY, this.priority);
-        setIntegerSafe(data, TAG_RATE, this.transferRate);
-        setIntegerSafe(data, TAG_MIN_MAX, this.minMaxLimit);
-        setIntegerSafe(data, TAG_SPEED, this.operationSpeed);
+        data.add(TAG_REQUIRE_RATE, new JsonPrimitive(transferRateRequired));
+        setEnumSafe(data, TAG_CHEMICAL_MODE, connectorMode);
+        setIntegerSafe(data, TAG_PRIORITY, priority);
+        setIntegerSafe(data, TAG_RATE, transferRate);
+        setIntegerSafe(data, TAG_MINMAX, minMaxLimit);
+        setIntegerSafe(data, TAG_SPEED, operationSpeed);
 
-        if (!this.filter.isEmpty()) {
-            data.add(TAG_FILTER, JSonTools.itemStackToJson(this.filter));
-        }
-        if (this.operationSpeed == 10 || (this.transferRate != null && this.transferRate > this.getMaxRate(false))) {
+        if (operationSpeed == 10 || (transferRate != null && transferRate > XNetGases.maxRateNormal.get())) {
             data.add(TAG_ADVANCED_NEEDED, new JsonPrimitive(true));
+        }
+
+        if (!matcher.isEmpty()) {
+            data.add(TAG_FILTER, JSonTools.itemStackToJson(matcher.getStack()));
         }
         return data;
     }
 
-    @Nullable
     @Override
-    public IndicatorIcon getIndicatorIcon() {
-        return switch (this.connectorMode) {
-            case INS -> new IndicatorIcon(XNET_GUI_ELEMENTS, 0, 70, 13, 10);
-            case EXT -> new IndicatorIcon(XNET_GUI_ELEMENTS, 13, 70, 13, 10);
-        };
+    public void readFromJson(JsonObject data) {
+        super.readFromJsonInternal(data);
+        connectorMode = getEnumSafe(data, TAG_CHEMICAL_MODE, ConnectorMode::byName);
+        priority = getIntegerSafe(data, TAG_PRIORITY);
+        transferRate = getIntegerSafe(data, TAG_RATE);
+        transferRateRequired = getBoolSafe(data, TAG_REQUIRE_RATE);
+        minMaxLimit = getIntegerSafe(data, TAG_MINMAX);
+
+        operationSpeed = getIntegerNotNull(data, TAG_SPEED);
+        if (operationSpeed == 0) operationSpeed = 20;
+
+        matcher = Optional.ofNullable(data.get(TAG_FILTER))
+                .map(JsonElement::getAsJsonObject)
+                .map(JSonTools::jsonToItemStack)
+                .map(ChemicalMatcher::from)
+                .orElse(ChemicalMatcher.EMPTY);
+    }
+
+    private String getRateTooltip() {
+        return CHEMICAL_RATE_TOOLTIP_FORMATTED.i18n(
+                (getConnectorMode() == ConnectorMode.EXT ? EXT_ENDING : INS_ENDING).i18n(),
+                (advanced ? XNetGases.maxRateAdvanced : XNetGases.maxRateNormal).get()
+        );
+    }
+
+    private String getMinMaxTooltip() {
+        return CHEMICAL_MINMAX_TOOLTIP_FORMATTED.i18n(
+                (getConnectorMode() == ConnectorMode.EXT ? EXT_ENDING : INS_ENDING).i18n(),
+                (getConnectorMode() == ConnectorMode.EXT ? LOW_FORMAT : HIGH_FORMAT).i18n());
     }
 }

@@ -1,23 +1,23 @@
 package terrails.xnetgases;
 
+import mcjty.rftoolsbase.api.xnet.IXNet;
 import mcjty.rftoolsbase.api.xnet.channels.IConnectable;
 import mcjty.xnet.XNet;
-import net.minecraftforge.common.ForgeConfigSpec;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.fml.ModLoadingContext;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.config.ModConfig;
-import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.InterModComms;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.common.Mod;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
+import net.neoforged.neoforge.common.ModConfigSpec;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import terrails.xnetgases.module.chemical.ChemicalChannelModule;
-import terrails.xnetgases.helper.BaseChannelModule;
-import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
-import terrails.xnetgases.module.logic.ChemicalLogicChannelModule;
 
-import java.nio.file.Path;
-import java.util.Arrays;
+import terrails.xnetgases.module.ChemicalHelper;
+import terrails.xnetgases.module.chemical.ChemicalChannelType;
+import terrails.xnetgases.module.logic.ChemicalLogicChannelType;
+
+import java.util.function.Function;
 
 @Mod(XNetGases.MOD_ID)
 public class XNetGases {
@@ -25,32 +25,35 @@ public class XNetGases {
     public static final String MOD_ID = "xnetgases";
     public static final Logger LOGGER = LogManager.getLogger();
 
-    private static final ForgeConfigSpec CONFIG_SPEC;
+    public static final ModConfigSpec.IntValue maxRateNormal;
+    public static final ModConfigSpec.IntValue maxRateAdvanced;
 
-    private static final BaseChannelModule[] MODULES = {
-            new ChemicalLogicChannelModule(),
-            new ChemicalChannelModule()
-    };
+    private static final ModConfigSpec CONFIG_SPEC;
 
-    public XNetGases() {
-        ModLoadingContext.get().registerConfig(ModConfig.Type.SERVER, CONFIG_SPEC, "xnetgases.toml");
-        final IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
-        bus.addListener(this::setup);
+    static {
+        final ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
+        builder.comment("General settings").push("general");
+        maxRateNormal = builder.comment("Maximum chemical per operation that a normal connector can input or output").defineInRange("maxChemicalRateNormal", 1000, 1, 1000000000);
+        maxRateAdvanced = builder.comment("Maximum chemical per operation that an advanced connector can input or output").defineInRange("maxChemicalRateAdvanced", 5000, 1, 1000000000);
+        CONFIG_SPEC = builder.pop().build();
+    }
+
+    public XNetGases(IEventBus modEventBus, ModContainer modContainer) {
+        modEventBus.addListener(this::setup);
+        modContainer.registerConfig(ModConfig.Type.SERVER, CONFIG_SPEC, XNetGases.MOD_ID + ".toml");
     }
 
     private void setup(final FMLCommonSetupEvent event) {
-        Arrays.stream(MODULES).forEach(XNet.xNetApi::registerChannelType);
-        XNet.xNetApi.registerConnectable(((blockGetter, connectorPos, blockPos, blockEntity, direction) -> {
-            if (ChemicalHelper.handlerPresent(blockEntity, direction)) {
-                return IConnectable.ConnectResult.YES;
-            } else return IConnectable.ConnectResult.DEFAULT;
-        }));
-    }
+        InterModComms.sendTo(XNet.MODID, "getXNet", () -> (Function<IXNet, Void>) api -> {
+            api.registerChannelType(ChemicalChannelType.TYPE);
+            api.registerChannelType(ChemicalLogicChannelType.TYPE);
 
-    static {
-        final ForgeConfigSpec.Builder builder = new ForgeConfigSpec.Builder();
-        builder.comment("General settings").push("general");
-        Arrays.stream(MODULES).forEach(module -> module.setupConfig(builder));
-        CONFIG_SPEC = builder.pop().build();
+            api.registerConnectable(((blockGetter, connectorPos, blockPos, blockEntity, direction) -> {
+                if (ChemicalHelper.blockSupportsChemicals(blockEntity, direction)) {
+                    return IConnectable.ConnectResult.YES;
+                } else return IConnectable.ConnectResult.DEFAULT;
+            }));
+            return null;
+        });
     }
 }

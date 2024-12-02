@@ -2,212 +2,205 @@ package terrails.xnetgases.module.chemical;
 
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
+import com.mojang.serialization.MapCodec;
+import com.mojang.serialization.codecs.RecordCodecBuilder;
 import mcjty.lib.varia.LevelTools;
+import mcjty.rftoolsbase.api.xnet.channels.IChannelSettings;
+import mcjty.rftoolsbase.api.xnet.channels.IChannelType;
 import mcjty.rftoolsbase.api.xnet.channels.IConnectorSettings;
 import mcjty.rftoolsbase.api.xnet.channels.IControllerContext;
 import mcjty.rftoolsbase.api.xnet.gui.IEditorGui;
 import mcjty.rftoolsbase.api.xnet.gui.IndicatorIcon;
+import mcjty.rftoolsbase.api.xnet.helper.DefaultChannelSettings;
 import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
-import mcjty.xnet.apiimpl.Constants;
-import mcjty.xnet.apiimpl.enums.InsExtMode;
 import mcjty.xnet.apiimpl.ConnectedEntity;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
 import mcjty.xnet.setup.Config;
 import mekanism.api.Action;
 import mekanism.api.chemical.ChemicalStack;
 import mekanism.api.chemical.IChemicalHandler;
+import mekanism.common.capabilities.Capabilities;
+import org.jetbrains.annotations.Nullable;
+
+import terrails.xnetgases.module.chemical.enums.ChannelMode;
+import terrails.xnetgases.module.chemical.enums.ConnectorMode;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import org.jetbrains.annotations.Nullable;
-import terrails.xnetgases.helper.BaseChannelSettings;
-import terrails.xnetgases.helper.ModuleEnums.ChannelMode;
-import terrails.xnetgases.module.chemical.utils.ChemicalHelper;
 
 import javax.annotation.Nonnull;
-import java.util.ArrayList;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
-import static terrails.xnetgases.Constants.TAG_MODE;
+import static mcjty.xnet.apiimpl.Constants.TAG_DELAY;
+import static mcjty.xnet.apiimpl.Constants.TAG_MODE;
+import static terrails.xnetgases.Constants.TAG_DISTRIBUTE_OFFSET;
 import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
 
-public class ChemicalChannelSettings extends BaseChannelSettings {
+public class ChemicalChannelSettings extends DefaultChannelSettings implements IChannelSettings {
 
-    public static final String TAG_DELAY = "delay";
-    public static final String TAG_DISTRIBUTE_OFFSET = "distribute_offset";
+    public static final MapCodec<ChemicalChannelSettings> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
+            ChannelMode.CODEC.fieldOf("mode").forGetter(ChemicalChannelSettings::getChannelMode)
+    ).apply(instance, ChemicalChannelSettings::new));
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ChemicalChannelSettings> STREAM_CODEC = StreamCodec.composite(
+            ChannelMode.STREAM_CODEC, ChemicalChannelSettings::getChannelMode,
+            ChemicalChannelSettings::new
+    );
 
     private ChannelMode channelMode = ChannelMode.DISTRIBUTE;
-    private int delay;
-    private int roundRobinOffset;
+    private int delay = 0;
+    private int roundRobinOffset = 0;
 
     private List<ConnectedEntity<ChemicalConnectorSettings>> extractors;
     private List<ConnectedEntity<ChemicalConnectorSettings>> consumers;
 
-    public ChemicalChannelSettings() {
-        this.delay = 0;
-        this.roundRobinOffset = 0;
+    public ChemicalChannelSettings() {}
+
+    public ChemicalChannelSettings(ChannelMode channelMode) {
+        this.channelMode = channelMode;
+    }
+
+    public ChannelMode getChannelMode() {
+        return channelMode;
     }
 
     @Override
-    public void readFromNBT(CompoundTag tag) {
-        this.channelMode = ChannelMode.values()[tag.getByte(TAG_MODE)];
-        this.delay = tag.getInt(TAG_DELAY);
-        this.roundRobinOffset = tag.getInt(TAG_DISTRIBUTE_OFFSET);
+    public IChannelType getType() {
+        return ChemicalChannelType.TYPE;
     }
 
     @Override
     public void writeToNBT(CompoundTag tag) {
-        tag.putByte(TAG_MODE, (byte) this.channelMode.ordinal());
-        tag.putInt(TAG_DELAY, this.delay);
-        tag.putInt(TAG_DISTRIBUTE_OFFSET, this.roundRobinOffset);
+        tag.putInt(TAG_DELAY, delay);
+        tag.putInt(TAG_DISTRIBUTE_OFFSET, roundRobinOffset);
     }
 
     @Override
-    public void readFromJson(JsonObject data) {
-        this.channelMode = ChannelMode.byName(data.get(TAG_MODE).getAsString());
-        this.delay = data.get(TAG_DELAY).getAsInt();
-        this.roundRobinOffset = data.get(TAG_DISTRIBUTE_OFFSET).getAsInt();
+    public void readFromNBT(CompoundTag tag) {
+        delay = tag.getInt(TAG_DELAY);
+        roundRobinOffset = tag.getInt(TAG_DISTRIBUTE_OFFSET);
     }
 
     @Override
     public JsonObject writeToJson() {
         JsonObject object = new JsonObject();
-        object.add(TAG_MODE, new JsonPrimitive(this.channelMode.name()));
-        object.add(TAG_DELAY, new JsonPrimitive(this.delay));
-        object.add(TAG_DISTRIBUTE_OFFSET, new JsonPrimitive(this.roundRobinOffset));
+        object.add(TAG_MODE, new JsonPrimitive(channelMode.name()));
         return object;
     }
 
     @Override
+    public void readFromJson(JsonObject data) {
+        channelMode = ChannelMode.byName(data.get(TAG_MODE).getAsString());
+    }
+
+    @Override
     public void tick(int channel, IControllerContext context) {
-        --this.delay;
-        if (this.delay <= 0) {
-            this.delay = 200 * 6;
-        }
+        --delay;
+        if (delay <= 0) delay = 200 * 6;
+        if (delay % 10 != 0) return;
 
-        if (this.delay % 10 != 0) {
-            return;
-        }
         updateCache(channel, context);
-        Level world = context.getControllerWorld();
-        for (ConnectedEntity<ChemicalConnectorSettings> extractor : this.extractors) {
+        Level level = context.getControllerWorld();
+        for (ConnectedEntity<ChemicalConnectorSettings> extractor : extractors) {
             ChemicalConnectorSettings settings = extractor.settings();
-            if (this.delay % settings.getOperationSpeed() != 0) {
-                continue;
-            }
-            if (!LevelTools.isLoaded(world, extractor.getBlockPos())) {
-                continue;
-            }
-            if (!checkRedstone(settings, extractor.getConnectorEntity(), context)) {
-                return;
-            }
 
-            BlockEntity be = extractor.getConnectedEntity();
-            ChemicalEnums.Type type = settings.getConnectorType();
+            if (delay % settings.getOperationSpeed() != 0) continue;
+            if (!LevelTools.isLoaded(level, extractor.getBlockPos())) continue;
+            if (!checkRedstone(settings, extractor.getConnectorEntity(), context)) continue;
 
-            IChemicalHandler<?, ?> handler = ChemicalHelper.handler(be, settings.getFacing(), type).orElse(null);
-            if (handler == null) {
-                continue;
-            }
+            IChemicalHandler handler = level.getCapability(
+                    Capabilities.CHEMICAL.block(),
+                    extractor.getBlockPos(),
+                    null,
+                    extractor.getConnectedEntity(),
+                    settings.getFacing()
+            );
+            if (handler == null) continue;
 
-            tickGasHandler(context, settings, handler);
+            tickChemicalHandler(context, settings, handler);
         }
     }
 
-    private void tickGasHandler(IControllerContext context, ChemicalConnectorSettings settings, IChemicalHandler<?,?> handler) {
-        if (!context.checkAndConsumeRF(Config.controllerOperationRFT.get())) {
-            return;
-        }
-        ChemicalEnums.Type type = settings.getConnectorType();
-        ChemicalStack<?> filter = settings.getMatcher();
-        long amount = ChemicalHelper.amountInTank(handler, settings.getFacing(), filter, type);
-        // Just skip extractor if there is no chemical in tank
-        if (amount <= 0) {
-            return;
-        }
-        long toExtract = settings.getRate();
+    private void tickChemicalHandler(IControllerContext context, ChemicalConnectorSettings settings, IChemicalHandler handler) {
+        if (!context.checkAndConsumeRF(Config.controllerChannelRFT.get())) return;
 
+        long amount = settings.getMatcher().amountInTank(handler, settings.getFacing());
+        if (amount <= 0) return;
+        long toExtract = settings.getTransferRate();
         Integer count = settings.getMinMaxLimit();
         if (count != null) {
             long canExtract = amount - count;
-            if (canExtract <= 0) {
-                return;
-            }
+            if (canExtract <= 0) return;
             toExtract = Math.min(toExtract, canExtract);
         }
 
         while (true) {
-            ChemicalStack<?> extractStack = ChemicalHelper.extract(handler, toExtract, settings.getFacing(), Action.SIMULATE, type);
-            if (extractStack.isEmpty() || (filter != null && filter.getType() != extractStack.getType())) {
-                return;
+            ChemicalStack extracted = handler.extractChemical(toExtract, Action.SIMULATE);
+
+            if (!settings.getMatcher().test(extracted)) {
+                break;
             }
-            toExtract = extractStack.getAmount();
-            long remaining = insertGas(context, extractStack, type);
+
+            toExtract = extracted.getAmount();
+            long remaining = insertChemical(context, extracted);
             toExtract -= remaining;
             if (remaining != toExtract) {
-                ChemicalHelper.extract(handler, toExtract, settings.getFacing(), Action.EXECUTE, type);
-                return;
+                handler.extractChemical(toExtract, Action.EXECUTE);
+                break;
             }
         }
     }
 
-    private long insertGas(IControllerContext context, ChemicalStack<?> stack, ChemicalEnums.Type type) {
+    private long insertChemical(IControllerContext context, ChemicalStack stack) {
         Level level = context.getControllerWorld();
-        if (this.channelMode == ChannelMode.PRIORITY) {
-            this.roundRobinOffset = 0;
-        }
+        if (channelMode == ChannelMode.PRIORITY) roundRobinOffset = 0;
+
         long amount = stack.getAmount();
-        int currentRoundRobinOffset = this.roundRobinOffset;
-        for (int j = 0; j < this.consumers.size(); j++) {
-            int i = (j + currentRoundRobinOffset) % this.consumers.size();
-            ConnectedEntity<ChemicalConnectorSettings> consumer = this.consumers.get(i);
+        int currentRoundRobinOffset = roundRobinOffset;
+        for (int j = 0; j < consumers.size(); j++) {
+            int i = (j + currentRoundRobinOffset) % consumers.size();
+            ConnectedEntity<ChemicalConnectorSettings> consumer = consumers.get(i);
             ChemicalConnectorSettings settings = consumer.settings();
 
-            if (settings.getConnectorType() != type) {
+            if (!settings.getMatcher().test(stack)) continue;
+            if (!LevelTools.isLoaded(level, consumer.getBlockPos())) continue;
+            if (!checkRedstone(settings, consumer.getConnectorEntity(), context)) continue;
+
+            IChemicalHandler handler = level.getCapability(
+                    Capabilities.CHEMICAL.block(),
+                    consumer.getBlockPos(),
+                    null,
+                    consumer.getConnectedEntity(),
+                    settings.getFacing()
+            );
+            if (handler == null) continue;
+
+            long toInsert = Math.min(settings.getTransferRate(), amount);
+
+            Integer count = settings.getMinMaxLimit();
+            if (count != null) {
+                long tankAmount = settings.getMatcher().amountInTank(handler, settings.getFacing());
+                long canInsert = count - tankAmount;
+                if (canInsert <= 0) continue;
+                toInsert = Math.min(toInsert, canInsert);
+            }
+
+            if (settings.isTransferRateRequired() && settings.getTransferRate() > toInsert) {
                 continue;
             }
 
-            if (settings.getMatcher() != null && settings.getMatcher().getType() != stack.getType()) {
-                continue;
-            }
+            ChemicalStack copy = stack.copy();
+            copy.setAmount(toInsert);
 
-            if (!LevelTools.isLoaded(level, consumer.getBlockPos()) || !checkRedstone(settings, consumer.getConnectorEntity(), context)) {
-                continue;
-            }
-
-            BlockEntity be = consumer.getConnectedEntity();
-
-            IChemicalHandler<?, ?> handler = ChemicalHelper.handler(be, settings.getFacing(), settings.getConnectorType()).orElse(null);
-            if (handler != null) {
-                long toInsert = Math.min(settings.getRate(), amount);
-
-                Integer count = settings.getMinMaxLimit();
-                if (count != null) {
-                    long a = ChemicalHelper.amountInTank(handler, settings.getFacing(), settings.getMatcher(), settings.getConnectorType());
-                    long canInsert = count - a;
-                    if (canInsert <= 0) {
-                        continue;
-                    }
-                    toInsert = Math.min(toInsert, canInsert);
-                }
-
-                if (settings.isTransferRateRequired() && settings.getRate() > toInsert) {
-                    continue;
-                }
-
-                ChemicalStack<?> copy = stack.copy();
-                copy.setAmount(toInsert);
-
-                ChemicalStack<?> remaining = ChemicalHelper.insert(handler, copy, settings.getFacing(), Action.EXECUTE, settings.getConnectorType());
-                if (remaining.isEmpty() || (!remaining.isEmpty() && copy.getAmount() != remaining.getAmount())) {
-                    this.roundRobinOffset = (this.roundRobinOffset + 1) % this.consumers.size();
-                    amount -= (copy.getAmount() - remaining.getAmount());
-                    if (amount <= 0) {
-                        return 0;
-                    }
+            ChemicalStack remaining = handler.insertChemical(copy, Action.EXECUTE);
+            if (remaining.isEmpty() || copy.getAmount() != remaining.getAmount()) {
+                roundRobinOffset = (roundRobinOffset + 1) % consumers.size();
+                amount -= (copy.getAmount() - remaining.getAmount());
+                if (amount <= 0) {
+                    return 0;
                 }
             }
         }
@@ -216,72 +209,65 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
 
     @Override
     public void cleanCache() {
-        this.extractors = null;
-        this.consumers = null;
+        extractors = null;
+        consumers = null;
     }
 
     private void updateCache(int channel, IControllerContext context) {
-        if (this.extractors == null) {
-            this.extractors = new ArrayList<>();
-            this.consumers = new ArrayList<>();
-            Level world = context.getControllerWorld();
-            Map<SidedConsumer, IConnectorSettings> connectors = context.getConnectors(channel);
-            Iterator<Map.Entry<SidedConsumer, IConnectorSettings>> iterator = connectors.entrySet().iterator();
+        if (extractors == null) {
+            extractors = new ArrayList<>();
+            consumers = new ArrayList<>();
 
-            while (iterator.hasNext()) {
-                Map.Entry<SidedConsumer, IConnectorSettings> entry = iterator.next();
+            Level level = context.getControllerWorld();
+            Map<SidedConsumer, IConnectorSettings> connectors = context.getConnectors(channel);
+            for (var entry : connectors.entrySet()) {
                 ChemicalConnectorSettings settings = (ChemicalConnectorSettings) entry.getValue();
-                ConnectedEntity<ChemicalConnectorSettings> connectedEntity;
-                connectedEntity = getConnectedEntityInfo(context, entry, world, settings);
-                if (connectedEntity == null) {
-                    continue;
-                }
-                if (settings.getConnectorMode() == InsExtMode.EXT) {
-                    this.extractors.add(connectedEntity);
-                } else {
-                    this.consumers.add(connectedEntity);
-                }
+                ConnectedEntity<ChemicalConnectorSettings> connectedEntity = getConnectedEntityInfo(context, entry, level, settings);
+                if (connectedEntity == null) continue;
+
+                if (settings.getConnectorMode() == ConnectorMode.INS) consumers.add(connectedEntity);
+                else extractors.add(connectedEntity);
             }
 
             connectors = context.getRoutedConnectors(channel);
-            iterator = connectors.entrySet().iterator();
-
-            while (iterator.hasNext()) {
-                Map.Entry<SidedConsumer, IConnectorSettings> entry = iterator.next();
+            for (var entry : connectors.entrySet()) {
                 ChemicalConnectorSettings settings = (ChemicalConnectorSettings) entry.getValue();
-                ConnectedEntity<ChemicalConnectorSettings> connectedEntity;
-                connectedEntity = getConnectedEntityInfo(context, entry, world, settings);
-                if (connectedEntity == null) {
-                    continue;
-                }
-                if (settings.getConnectorMode() == InsExtMode.INS) {
-                    this.consumers.add(connectedEntity);
-                }
+                if (settings.getConnectorMode() == ConnectorMode.EXT) continue;
+
+                ConnectedEntity<ChemicalConnectorSettings> connectedEntity = getConnectedEntityInfo(context, entry, level, settings);
+                if (connectedEntity == null) continue;
+
+                consumers.add(connectedEntity);
             }
 
-            this.consumers.sort((o1, o2) -> Integer.compare(o2.settings().getPriority(), o1.settings().getPriority()));
+            // Sort by descending priority
+            consumers.sort(Collections.reverseOrder(Comparator.comparing(o -> o.settings().getPriority())));
         }
     }
 
-    @javax.annotation.Nullable
-    private ConnectedEntity<ChemicalConnectorSettings> getConnectedEntityInfo(
-            IControllerContext context, Map.Entry<SidedConsumer, IConnectorSettings> entry, @Nonnull Level world, @Nonnull ChemicalConnectorSettings con
-    ) {
+    private ConnectedEntity<ChemicalConnectorSettings> getConnectedEntityInfo(IControllerContext context, Map.Entry<SidedConsumer, IConnectorSettings> entry, @Nonnull Level level, @Nonnull ChemicalConnectorSettings settings) {
         BlockPos connectorPos = context.findConsumerPosition(entry.getKey().consumerId());
         if (connectorPos == null) {
             return null;
         }
-        ConnectorTileEntity connectorTileEntity = (ConnectorTileEntity) world.getBlockEntity(connectorPos);
+
+        ConnectorTileEntity connectorTileEntity = (ConnectorTileEntity) level.getBlockEntity(connectorPos);
         if (connectorTileEntity == null) {
             return null;
         }
+
         BlockPos connectedBlockPos = connectorPos.relative(entry.getKey().side());
-        BlockEntity connectedEntity = world.getBlockEntity(connectedBlockPos);
+        BlockEntity connectedEntity = level.getBlockEntity(connectedBlockPos);
         if (connectedEntity == null) {
             return null;
         }
 
-        return new ConnectedEntity<>(entry.getKey(), con, connectorPos, connectedBlockPos, connectedEntity, connectorTileEntity);
+        return new ConnectedEntity<>(entry.getKey(), settings, connectorPos, connectedBlockPos, connectedEntity, connectorTileEntity);
+    }
+
+    @Override
+    public int getColors() {
+        return 0;
     }
 
     @Nullable
@@ -290,9 +276,10 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
         return new IndicatorIcon(XNET_GUI_ELEMENTS, 0, 90, 11, 10);
     }
 
+    @Nullable
     @Override
-    public void createGui(IEditorGui gui) {
-        gui.nl().translatableChoices(TAG_MODE, this.channelMode, ChannelMode.values());
+    public String getIndicator() {
+        return null;
     }
 
     @Override
@@ -301,7 +288,17 @@ public class ChemicalChannelSettings extends BaseChannelSettings {
     }
 
     @Override
+    public void createGui(IEditorGui gui) {
+        gui.nl().translatableChoices(TAG_MODE, channelMode, ChannelMode.values());
+    }
+
+    @Override
     public void update(Map<String, Object> map) {
-        this.channelMode = ChemicalHelper.safeChannelMode(map.get(Constants.TAG_MODE));
+        Object value = map.get(TAG_MODE);
+        if (value instanceof Integer i) {
+            channelMode = ChannelMode.values()[i];
+        } else {
+            channelMode = ChannelMode.DISTRIBUTE;
+        }
     }
 }

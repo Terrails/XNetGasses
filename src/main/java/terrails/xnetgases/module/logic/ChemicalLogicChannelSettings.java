@@ -1,8 +1,10 @@
 package terrails.xnetgases.module.logic;
 
 import com.google.gson.JsonObject;
+import com.mojang.serialization.MapCodec;
 import mcjty.lib.varia.LevelTools;
 import mcjty.rftoolsbase.api.xnet.channels.IChannelSettings;
+import mcjty.rftoolsbase.api.xnet.channels.IChannelType;
 import mcjty.rftoolsbase.api.xnet.channels.IConnectorSettings;
 import mcjty.rftoolsbase.api.xnet.channels.IControllerContext;
 import mcjty.rftoolsbase.api.xnet.gui.IEditorGui;
@@ -12,14 +14,19 @@ import mcjty.rftoolsbase.api.xnet.keys.SidedConsumer;
 import mcjty.xnet.apiimpl.ConnectedBlock;
 import mcjty.xnet.apiimpl.ConnectedEntity;
 import mcjty.xnet.apiimpl.logic.ConnectedOptionalEntity;
+import mcjty.xnet.apiimpl.logic.RSOutput;
 import mcjty.xnet.apiimpl.logic.enums.LogicMode;
+import mcjty.xnet.logic.LogicOperations;
+import mcjty.xnet.logic.LogicTools;
 import mcjty.xnet.modules.cables.blocks.ConnectorTileEntity;
+
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
-
 
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -32,23 +39,26 @@ import static terrails.xnetgases.Constants.XNET_GUI_ELEMENTS;
 
 public class ChemicalLogicChannelSettings extends DefaultChannelSettings implements IChannelSettings {
 
+    public static final MapCodec<ChemicalLogicChannelSettings> CODEC = MapCodec.unit(ChemicalLogicChannelSettings::new);
+
+    public static final StreamCodec<RegistryFriendlyByteBuf, ChemicalLogicChannelSettings> STREAM_CODEC = StreamCodec.of(
+            (buf, s) -> {},
+            buf -> new ChemicalLogicChannelSettings()
+    );
+
     private int colors = 0;
+
     private List<ConnectedOptionalEntity<ChemicalLogicConnectorSettings>> sensors = null;
     private List<ConnectedBlock<ChemicalLogicConnectorSettings>> outputs = null;
 
     @Override
-    public JsonObject writeToJson() {
-        return new JsonObject();
+    public IChannelType getType() {
+        return ChemicalLogicChannelType.TYPE;
     }
 
     @Override
-    public void readFromNBT(CompoundTag tag) {
-        colors = tag.getInt(TAG_COLORS);
-    }
-
-    @Override
-    public void writeToNBT(CompoundTag tag) {
-        tag.putInt(TAG_COLORS, colors);
+    public int getColors() {
+        return colors;
     }
 
     @Override
@@ -57,10 +67,10 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
         Level level = context.getControllerWorld();
 
         colors = 0;
-        for (ConnectedOptionalEntity<ChemicalLogicConnectorSettings> entry : sensors) {
-            ChemicalLogicConnectorSettings settings = entry.settings();
+        for (ConnectedOptionalEntity<ChemicalLogicConnectorSettings> connectedBlock : sensors) {
+            ChemicalLogicConnectorSettings settings = connectedBlock.settings();
             int sensorColors = 0;
-            BlockPos pos = entry.getBlockPos();
+            BlockPos pos = connectedBlock.getBlockPos();
             if (!LevelTools.isLoaded(level, pos)) {
                 // If it is not chunkloaded we just use the color settings as we last remembered it
                 colors |= settings.getColorMask();
@@ -68,11 +78,11 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
             }
 
             // If checkRedstone is false the sensor is disabled which means the colors from it will also be disabled
-            if (checkRedstone(settings, entry.getConnectorEntity(), context)) {
-                BlockEntity te = entry.getConnectedEntity();
+            if (checkRedstone(settings, connectedBlock.getConnectorEntity(), context)) {
+                BlockEntity te = connectedBlock.getConnectedEntity();
 
                 for (ChemicalSensor sensor : settings.getSensors()) {
-                    if (sensor.test(te, settings)) {
+                    if (sensor.test(te, level, pos, settings)) {
                         sensorColors |= 1 << sensor.getOutputColor().ordinal();
                     }
                 }
@@ -86,15 +96,20 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
             ChemicalLogicConnectorSettings settings = entry.settings();
 
             BlockPos connectorPos = entry.connectorPos();
-            Direction side = entry.sidedConsumer().side();
             if (!LevelTools.isLoaded(level, connectorPos)) {
                 continue;
             }
 
+            Direction side = entry.sidedConsumer().side();
             ConnectorTileEntity connectorTileEntity = entry.getConnectorEntity();
+
             int powerOut;
             if (checkRedstone(settings, connectorTileEntity, context)) {
-                powerOut = settings.getRedstoneOut() == null ? 0 : settings.getRedstoneOut();
+                RSOutput output = settings.getOutput();
+                boolean[] colorsArray = LogicTools.intToBinary(colors);
+                boolean input1 = colorsArray[output.getInputChannel1().ordinal()];
+                boolean input2 = colorsArray[output.getInputChannel2().ordinal()];
+                powerOut = LogicOperations.applyFilter(output, input1, input2) ? output.getRedstoneOut() : 0;
             } else {
                 powerOut = 0;
             }
@@ -171,8 +186,18 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
     }
 
     @Override
-    public int getColors() {
-        return colors;
+    public JsonObject writeToJson() {
+        return new JsonObject();
+    }
+
+    @Override
+    public void readFromNBT(CompoundTag tag) {
+        colors = tag.getInt(TAG_COLORS);
+    }
+
+    @Override
+    public void writeToNBT(CompoundTag tag) {
+        tag.putInt(TAG_COLORS, colors);
     }
 
     @Nullable
@@ -193,8 +218,8 @@ public class ChemicalLogicChannelSettings extends DefaultChannelSettings impleme
     }
 
     @Override
-    public void createGui(IEditorGui iEditorGui) { }
+    public void createGui(IEditorGui iEditorGui) {}
 
     @Override
-    public void update(Map<String, Object> map) { }
+    public void update(Map<String, Object> map) {}
 }
